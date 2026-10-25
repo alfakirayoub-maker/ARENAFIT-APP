@@ -18,6 +18,7 @@ import { useEffect } from 'react';
 import { ToastProvider } from '@/components/ui/Toast';
 import { queryClient, useRefetchOnAppForeground } from '@/data/queries';
 import { ReminderSheetProvider } from '@/features/reminders/ReminderSheet';
+import { InvitationLinkListener } from '@/features/guest-pass/components/InvitationLinkListener';
 import { NotificationRouter } from '@/features/notifications/NotificationRouter';
 import { ReminderSync } from '@/features/reminders/hooks';
 import { SessionProvider } from '@/features/session/session';
@@ -68,6 +69,7 @@ export default function RootLayout() {
               </Stack>
               <ReminderSync />
               <NotificationRouter />
+              <InvitationLinkListener />
             </ReminderSheetProvider>
           </ToastProvider>
         </ThemeProvider>

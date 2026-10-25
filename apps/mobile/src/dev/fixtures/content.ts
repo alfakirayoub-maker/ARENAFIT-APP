@@ -3,7 +3,7 @@
  * The member card and invitation names reuse the examples from the product brief.
  */
 
-import type { GuestPassSummary, MemberProfile, NewsArticle } from '@/types/domain';
+import type { MemberProfile, NewsArticle } from '@/types/domain';
 
 function daysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString();
@@ -63,13 +63,3 @@ export const fixtureMember: MemberProfile = {
   membership: { planName: 'Arena Premium', status: 'active', endsOn: '2027-08-24' },
 };
 
-export const fixtureGuestPasses: GuestPassSummary = {
-  allowance: 3,
-  available: 2,
-  invitations: [
-    { id: 'inv-1', inviteeName: 'Yassine', status: 'sent', createdAt: daysAgo(1) },
-    { id: 'inv-2', inviteeName: 'Sara', status: 'activated', createdAt: daysAgo(4) },
-    { id: 'inv-3', inviteeName: 'Mehdi', status: 'used', createdAt: daysAgo(12) },
-    { id: 'inv-4', inviteeName: 'Imane', status: 'converted', createdAt: daysAgo(30) },
-  ],
-};

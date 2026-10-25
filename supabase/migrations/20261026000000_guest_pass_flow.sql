@@ -540,7 +540,9 @@ begin
     return jsonb_build_object('result', 'invalid');
   end if;
 
-  -- One activation at a time per invitation: concurrent calls wait here.
+  -- One activation at a time per guest (one active pass each) and per
+  -- invitation (one pass each): concurrent calls wait on these locks.
+  perform 1 from public.profiles where id = uid for update;
   select * into inv from public.guest_invitations where id = inv_id for update;
 
   if inv.status in ('sent', 'activated') and inv.expires_at <= now() then

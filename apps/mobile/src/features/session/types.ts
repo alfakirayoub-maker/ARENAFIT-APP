@@ -1,31 +1,38 @@
-import type { GuestPassSummary, MemberProfile } from '@/types/domain';
+import type { MemberProfile } from '@/types/domain';
 
 /**
  * Who is using the app.
  *
  *  - visitor: default. Browses planning, activities, coaches and news with no
  *    account and no Supabase user. Favorites/reminders live on the device.
- *  - guest:   holds an activated Guest Pass (Guest Pass sprint). Its Supabase
- *    identity is created at activation time, not before.
- *  - member:  signed-in club member. The activation / sign-in flow is not
- *    decided yet; only a development mock exists.
+ *  - guest:   holds the guest identity created when they tapped « Activer mon
+ *    Pass » (anonymous Supabase user bound to their Guest Pass).
+ *  - member:  signed-in club member. The member sign-in flow is not decided
+ *    yet: release builds never create member sessions; development builds can
+ *    sign in a test member or show a demo member (`demo: true`, fixture data,
+ *    no backend).
  */
 export type Session =
   | { kind: 'visitor' }
-  | { kind: 'guest'; firstName: string | null }
-  | { kind: 'member'; member: MemberProfile; guestPasses: GuestPassSummary };
+  | { kind: 'guest'; userId: string }
+  | { kind: 'member'; member: MemberProfile; demo: boolean };
 
 export type SessionKind = Session['kind'];
 
+/** Development builds only: which session to preview. */
+export type DevSessionChoice = 'visitor' | 'member-demo' | 'member-test';
+
 /**
- * The boundary between screens and authentication. The real member provider
- * (activation flow TBD) implements this interface; screens only use
+ * The boundary between screens and authentication. Screens only use
  * `useSession()` and never know which provider is behind it.
  */
 export interface AuthProvider {
-  /** Session to start with (e.g. restored from secure storage). */
+  /** Session to start with (restored from the persisted auth session). */
   restore(): Promise<Session>;
   signOut(): Promise<void>;
-  /** Development only: preview the app as another kind of user. */
-  mock?: (kind: SessionKind) => Session;
+  /** Development only. */
+  dev?: {
+    choices: DevSessionChoice[];
+    select(choice: DevSessionChoice): Promise<Session>;
+  };
 }

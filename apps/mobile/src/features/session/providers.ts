@@ -1,23 +1,45 @@
-import type { AuthProvider } from './types';
+import { identity, sessionClient } from '@/features/auth';
+import { loadMemberProfile } from '@/features/auth/member-profile';
 
-/**
- * Release builds until member activation exists: everyone is a visitor and no
- * Supabase user is ever created.
- */
+import type { AuthProvider, Session } from './types';
+
+/** No Supabase configured: everyone is a visitor and no user is ever created. */
 export const visitorAuthProvider: AuthProvider = {
   restore: async () => ({ kind: 'visitor' }),
   signOut: async () => {},
 };
 
 /**
- * Provider in use. Development builds get the mock provider (fixture member,
- * switchable from Profil › Développement). The inline require below keeps it —
- * and its mock member data — out of release bundles.
+ * Real sessions from the persisted Supabase auth session. No session → visitor
+ * (no user is created on launch). Anonymous user → guest. A member session
+ * only exists if a member signed in — release builds have no member sign-in
+ * yet, so there it never happens.
+ */
+export const supabaseAuthProvider: AuthProvider | null =
+  identity && sessionClient
+    ? {
+        async restore(): Promise<Session> {
+          const user = await identity!.currentUser();
+          if (!user) return { kind: 'visitor' };
+          if (user.isAnonymous) return { kind: 'guest', userId: user.id };
+          const member = await loadMemberProfile(sessionClient!, user.id);
+          return member ? { kind: 'member', member, demo: false } : { kind: 'visitor' };
+        },
+        signOut: () => identity!.signOut(),
+      }
+    : null;
+
+const releaseProvider: AuthProvider = supabaseAuthProvider ?? visitorAuthProvider;
+
+/**
+ * Provider in use. Development builds wrap it with dev controls (demo member,
+ * test member sign-in). The inline require keeps that module — its fixture
+ * member and test credentials — out of release bundles.
  */
 export const authProvider: AuthProvider =
   // NODE_ENV (inlined at build time, unlike __DEV__) lets Metro drop the
   // dev-only branch and its require from release bundles.
   process.env.NODE_ENV !== 'production'
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dev-only module, excluded from release bundles
-  ? (require('./mock-provider') as typeof import('./mock-provider')).mockAuthProvider
-  : visitorAuthProvider;
+  ? (require('./dev-provider') as typeof import('./dev-provider')).createDevAuthProvider(releaseProvider)
+  : releaseProvider;

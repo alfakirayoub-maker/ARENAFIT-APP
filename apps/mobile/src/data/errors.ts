@@ -29,5 +29,7 @@ export class DataError extends Error {
 }
 
 export function isRetryable(error: unknown): boolean {
-  return error instanceof DataError ? error.retryable : true;
+  if (error instanceof DataError) return error.retryable;
+  // Business refusals (e.g. GuestPassError) never change on retry.
+  return !(error instanceof Error && error.name === 'GuestPassError');
 }

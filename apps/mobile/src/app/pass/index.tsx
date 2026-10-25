@@ -1,42 +1,49 @@
-import { Redirect } from 'expo-router';
-import { useState } from 'react';
+import { Redirect, router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 
-import { Badge } from '@/components/ui/Badge';
-import { BottomSheet } from '@/components/ui/BottomSheet';
 import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 import { DetailScreen } from '@/components/ui/DetailScreen';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { Icon } from '@/components/ui/Icon';
 import { ListGroup } from '@/components/ui/ListRow';
+import { PressableScale } from '@/components/ui/PressableScale';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
+import { useMyInvitations } from '@/features/guest-pass/hooks';
+import { invitationLine, statusTone, toneColor } from '@/features/guest-pass/presentation';
+import type { Invitation } from '@/features/guest-pass/types';
 import { useSession } from '@/features/session/session';
-import { formatPublishedAt } from '@/lib/club-time';
 import { colors, fontFamily, radius, spacing } from '@/theme';
-import type { GuestInvitationStatus } from '@/types/domain';
 
-const statusTone: Record<GuestInvitationStatus, 'neutral' | 'accent' | 'success' | 'warning' | 'error'> = {
-  sent: 'warning',
-  activated: 'accent',
-  used: 'neutral',
-  expired: 'error',
-  cancelled: 'error',
-  converted: 'success',
-};
-
-/**
- * Profil › Pass & Invitations (members only).
- * Sprint 2: UI with mock data. Sharing, invitation links and deferred deep
- * linking (Branch) arrive in the Guest Pass sprint.
- */
+/** Profil › Pass & Invitations (members only). */
 export default function PassScreen() {
   const { t } = useTranslation();
-  const { session } = useSession();
-  const [soonVisible, setSoonVisible] = useState(false);
+  const { session, restored } = useSession();
+  const query = useMyInvitations();
 
+  if (!restored) return null;
   if (session.kind !== 'member') return <Redirect href="/profil" />;
-  const { allowance, available, invitations } = session.guestPasses;
+
+  if (session.demo) {
+    return (
+      <DetailScreen>
+        <Text variant="display" accessibilityRole="header">
+          {t('profile.passes')}
+        </Text>
+        <Card>
+          <Text variant="body" color="secondary">
+            {t('guestPass.demoNotice')}
+          </Text>
+        </Card>
+      </DetailScreen>
+    );
+  }
+
+  const data = query.data;
+  const available = data?.available ?? 0;
 
   return (
     <DetailScreen
@@ -46,8 +53,8 @@ export default function PassScreen() {
           icon="gift-outline"
           size="lg"
           fullWidth
-          disabled={available === 0}
-          onPress={() => setSoonVisible(true)}
+          disabled={!data || available === 0}
+          onPress={() => router.push('/pass/offer')}
         />
       }>
       <Text variant="display" accessibilityRole="header">
@@ -55,27 +62,52 @@ export default function PassScreen() {
       </Text>
 
       {/* Balance */}
-      <View style={styles.balance} accessible accessibilityLabel={`${t('guestPass.myPasses')}: ${available} ${t('guestPass.available')}`}>
-        <Text variant="overline" color="secondary" uppercase>
-          {t('guestPass.myPasses')}
-        </Text>
-        <View style={styles.balanceRow}>
-          <Text style={styles.bigNumber} maxFontSizeMultiplier={1.2}>
-            {available}
+      {data === undefined ? (
+        query.isError ? (
+          <ErrorState onRetry={() => query.refetch()} />
+        ) : (
+          <Skeleton height={150} borderRadius={radius.xl} />
+        )
+      ) : (
+        <View
+          style={styles.balance}
+          accessible
+          accessibilityLabel={`${t('guestPass.myPasses')}: ${available} ${t('guestPass.available', { count: available })}`}>
+          <Text variant="overline" color="secondary" uppercase>
+            {t('guestPass.myPasses')}
           </Text>
-          <Text variant="subheading" color="secondary">
-            {t('guestPass.available')}
-          </Text>
-        </View>
-        <View style={styles.dots}>
-          {Array.from({ length: allowance }, (_, i) => (
-            <View key={i} style={[styles.dot, { backgroundColor: i < available ? colors.primary : colors.surfacePressed }]} />
-          ))}
-        </View>
-        {available === 0 && (
+          <View style={styles.balanceRow}>
+            <Text style={styles.bigNumber} maxFontSizeMultiplier={1.2}>
+              {available}
+            </Text>
+            <Text variant="subheading" color="secondary">
+              {t('guestPass.available', { count: available })}
+            </Text>
+          </View>
+          <View style={styles.dots}>
+            {Array.from({ length: Math.max(data.allowance, available) }, (_, i) => (
+              <View key={i} style={[styles.dot, { backgroundColor: i < available ? colors.primary : colors.surfacePressed }]} />
+            ))}
+          </View>
           <Text variant="caption" color="tertiary">
-            {t('guestPass.noneLeft')}
+            {available === 0 ? t('guestPass.noneLeft') : t('guestPass.returnRule')}
           </Text>
+        </View>
+      )}
+
+      {/* Invitations */}
+      <View style={styles.block}>
+        <Text variant="heading" accessibilityRole="header">
+          {t('guestPass.invitations')}
+        </Text>
+        {data === undefined ? null : data.invitations.length === 0 ? (
+          <EmptyState compact icon="mail-outline" title={t('empty.noInvitations.title')} body={t('empty.noInvitations.body')} />
+        ) : (
+          <ListGroup>
+            {data.invitations.map((inv) => (
+              <InvitationRow key={inv.id} invitation={inv} />
+            ))}
+          </ListGroup>
         )}
       </View>
 
@@ -97,47 +129,37 @@ export default function PassScreen() {
           </View>
         ))}
       </View>
-
-      {/* Invitations */}
-      <View style={styles.block}>
-        <Text variant="heading" accessibilityRole="header">
-          {t('guestPass.invitations')}
-        </Text>
-        {invitations.length === 0 ? (
-          <EmptyState compact icon="mail-outline" title={t('empty.noInvitations.title')} body={t('empty.noInvitations.body')} />
-        ) : (
-          <ListGroup>
-            {invitations.map((inv) => (
-              <View
-                key={inv.id}
-                style={styles.invitation}
-                accessible
-                accessibilityLabel={`${inv.inviteeName ?? ''}, ${t(`guestPass.status.${inv.status}`)}`}>
-                <View style={styles.invitationIcon}>
-                  <Icon name="person-outline" size={18} />
-                </View>
-                <View style={styles.invitationText}>
-                  <Text variant="bodyStrong">{inv.inviteeName ?? '—'}</Text>
-                  <Text variant="caption" color="tertiary">
-                    {formatPublishedAt(inv.createdAt)}
-                  </Text>
-                </View>
-                <Badge label={t(`guestPass.status.${inv.status}`)} tone={statusTone[inv.status]} />
-              </View>
-            ))}
-          </ListGroup>
-        )}
-      </View>
-
-      <BottomSheet
-        visible={soonVisible}
-        onClose={() => setSoonVisible(false)}
-        closeLabel={t('common.close')}
-        title={t('guestPass.offerSoon.title')}
-        subtitle={t('guestPass.offerSoon.body')}>
-        <Button label={t('common.close')} variant="secondary" fullWidth onPress={() => setSoonVisible(false)} />
-      </BottomSheet>
     </DetailScreen>
+  );
+}
+
+function InvitationRow({ invitation: inv }: { invitation: Invitation }) {
+  const { t } = useTranslation();
+  const name = inv.inviteeName ?? t('guestPass.unnamed');
+  const line = invitationLine(inv, t);
+  return (
+    <PressableScale
+      onPress={() => router.push({ pathname: '/pass/[id]', params: { id: inv.id } })}
+      scaleTo={0.99}
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, ${line}`}
+      style={styles.invitation}>
+      <View style={styles.invitationIcon}>
+        <Icon name={inv.status === 'converted' ? 'star-outline' : 'person-outline'} size={18} />
+      </View>
+      <View style={styles.invitationText}>
+        <Text variant="bodyStrong" numberOfLines={1}>
+          {name}
+        </Text>
+        <View style={styles.statusLine}>
+          <View style={[styles.statusDot, { backgroundColor: toneColor[statusTone[inv.status]] }]} />
+          <Text variant="caption" color="secondary" numberOfLines={2} style={styles.flex}>
+            {line}
+          </Text>
+        </View>
+      </View>
+      <Icon name="chevron-forward" size={16} color={colors.textTertiary} />
+    </PressableScale>
   );
 }
 
@@ -168,4 +190,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   invitationText: { flex: 1, gap: spacing.xxs },
+  statusLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  flex: { flex: 1 },
 });

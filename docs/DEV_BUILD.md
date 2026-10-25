@@ -101,3 +101,15 @@ Run on at least one Android 13+ phone and one iPhone:
     after boot via expo-notifications).
 11. Device set to another timezone (e.g. Europe/Paris) → reminder still fires
     relative to the club time shown in the app.
+
+## Guest Pass on devices (Sprint 5)
+
+* Branch: set `EXPO_PUBLIC_BRANCH_KEY`, `EXPO_PUBLIC_BRANCH_DOMAIN`,
+  `EXPO_PUBLIC_BRANCH_ALTERNATE_DOMAIN` as EAS environment variables, then build — see
+  `docs/BRANCH.md` for the dashboard setup and the device checklist (deferred deep linking is
+  not verified until that checklist passes).
+* Native share sheet and « Envoyer sur WhatsApp » (`https://wa.me/?text=…`) only behave for
+  real on devices; the web preview copies the message instead.
+* QR: check it scans from another phone in bright and dim light at full screen brightness.
+* SecureStore holds the guest's QR token and the member's own share links; uninstalling
+  the app loses them (the guest's session too — documented MVP limitation).

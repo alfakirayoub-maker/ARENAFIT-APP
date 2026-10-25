@@ -1,15 +1,21 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+
+import { queryClient } from '@/data/queries';
 
 import { authProvider } from './providers';
-import type { AuthProvider, Session, SessionKind } from './types';
+import type { AuthProvider, DevSessionChoice, Session } from './types';
 
-export type { Session, SessionKind } from './types';
+export type { DevSessionChoice, Session, SessionKind } from './types';
 
 type SessionContextValue = {
   session: Session;
-  /** Development only (mock provider); undefined in release builds. */
-  setMockKind?: (kind: SessionKind) => void;
+  /** False until the persisted session has been read. */
+  restored: boolean;
+  /** Re-reads the session (e.g. after a Guest Pass activation). */
+  refresh: () => Promise<void>;
   signOut: () => void;
+  /** Development only; undefined in release builds. */
+  dev?: { choices: DevSessionChoice[]; select: (choice: DevSessionChoice) => Promise<void> };
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -17,13 +23,29 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 export function SessionProvider({ children, provider = authProvider }: { children: ReactNode; provider?: AuthProvider }) {
   // Everyone starts as a visitor; the provider may restore a richer session.
   const [session, setSession] = useState<Session>({ kind: 'visitor' });
+  const [restored, setRestored] = useState(false);
+
+  const apply = useCallback((next: Session) => {
+    // Per-user data (invitations, guest pass) must never leak across sessions.
+    queryClient.removeQueries({ queryKey: ['guest-pass'] });
+    setSession(next);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    try {
+      apply(await provider.restore());
+    } catch {
+      // keep the current session
+    }
+  }, [provider, apply]);
 
   useEffect(() => {
     let cancelled = false;
     provider
       .restore()
       .then((s) => !cancelled && setSession(s))
-      .catch(() => {}); // stay a visitor
+      .catch(() => {}) // stay a visitor
+      .finally(() => !cancelled && setRestored(true));
     return () => {
       cancelled = true;
     };
@@ -32,12 +54,19 @@ export function SessionProvider({ children, provider = authProvider }: { childre
   const value = useMemo<SessionContextValue>(
     () => ({
       session,
-      setMockKind: provider.mock ? (kind) => setSession(provider.mock!(kind)) : undefined,
+      restored,
+      refresh,
       signOut: () => {
-        void provider.signOut().finally(() => setSession({ kind: 'visitor' }));
+        void provider.signOut().finally(() => apply({ kind: 'visitor' }));
       },
+      dev: provider.dev
+        ? {
+            choices: provider.dev.choices,
+            select: async (choice) => apply(await provider.dev!.select(choice)),
+          }
+        : undefined,
     }),
-    [session, provider],
+    [session, restored, refresh, provider, apply],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

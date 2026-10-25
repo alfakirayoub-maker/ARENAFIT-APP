@@ -9,6 +9,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "db:test": "scripts/db/test.sh"
+    "db:test": "scripts/db/test.sh",
+    "local-stack": "scripts/local-stack/up.sh"
   }
 }

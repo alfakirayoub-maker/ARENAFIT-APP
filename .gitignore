@@ -6,3 +6,5 @@ node_modules/
 # Supabase local
 supabase/.branches
 supabase/.temp
+# Local API stack state (generated JWT secret, keys, test member password)
+.local-stack/

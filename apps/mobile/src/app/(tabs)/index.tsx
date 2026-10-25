@@ -10,6 +10,7 @@ import { MembershipCard } from '@/components/cards/MembershipCard';
 import { NextClassCard } from '@/components/cards/NextClassCard';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { FadeIn } from '@/components/ui/FadeIn';
@@ -20,6 +21,8 @@ import { ClassCardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
 import { queryKeys, useActivities, useRefresh, useTodaySessions, useUpcomingSessions } from '@/data/queries';
 import { useFavoriteActivities } from '@/features/favorites/store';
+import { GuestPassHomeCard } from '@/features/guest-pass/components/GuestPassHomeCard';
+import { useMyInvitations } from '@/features/guest-pass/hooks';
 import { hasStarted } from '@/features/planning/session-utils';
 import { useSession } from '@/features/session/session';
 import { colors, radius, screenGutter, spacing } from '@/theme';
@@ -33,14 +36,16 @@ export default function HomeScreen() {
   const todayQuery = useTodaySessions();
   const activitiesQuery = useActivities();
   const favorites = useFavoriteActivities();
-  const refresh = useRefresh(queryKeys.sessions, queryKeys.activities);
+  const refresh = useRefresh(queryKeys.sessions, queryKeys.activities, ['guest-pass']);
+  const invitations = useMyInvitations();
 
   const nextClass = upcomingQuery.data?.[0];
   // The hero already shows the next class; the day list shows what follows it.
   const laterToday = (todayQuery.data ?? []).filter((s) => !s.isCancelled && !hasStarted(s) && s.id !== nextClass?.id);
   const favoriteActivities = (activitiesQuery.data ?? []).filter((a) => favorites.isFavorite(a.slug));
 
-  const firstName = session.kind === 'member' ? session.member.firstName : session.kind === 'guest' ? session.firstName : null;
+  const firstName = session.kind === 'member' ? session.member.firstName : null;
+  const passesToOffer = invitations.data?.available ?? 0;
 
   return (
     <Screen
@@ -69,6 +74,13 @@ export default function HomeScreen() {
           {t('home.subtitle')}
         </Text>
       </View>
+
+      {/* Guest Mode: the guest's pass comes first, then the normal content */}
+      {session.kind === 'guest' && (
+        <View style={styles.section}>
+          <GuestPassHomeCard />
+        </View>
+      )}
 
       {/* 1. Next class — the most useful thing on the screen */}
       <Section title={t('home.nextClass')}>
@@ -122,9 +134,9 @@ export default function HomeScreen() {
       </Section>
 
       {/* 3. Guest Pass — visible but secondary */}
-      {session.kind === 'member' && session.guestPasses.available > 0 && (
+      {session.kind === 'member' && passesToOffer > 0 && (
         <View style={styles.section}>
-          <GuestPassCard available={session.guestPasses.available} />
+          <GuestPassCard available={passesToOffer} />
         </View>
       )}
 
@@ -172,6 +184,19 @@ export default function HomeScreen() {
           />
         )}
       </Section>
+
+      {/* Invitation received but the link didn't open the app */}
+      {session.kind === 'visitor' && (
+        <View style={styles.section}>
+          <Button
+            label={t('guestPass.invite.enterCode')}
+            icon="gift-outline"
+            variant="ghost"
+            fullWidth
+            onPress={() => router.push('/invite/code')}
+          />
+        </View>
+      )}
 
       {/* 5. Membership summary */}
       {session.kind === 'member' && session.member.membership && (

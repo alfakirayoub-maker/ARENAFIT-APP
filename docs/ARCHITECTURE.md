@@ -41,8 +41,8 @@ document only covers how the product is built.
 | i18n | i18next + react-i18next + expo-localization. FR is the source, AR/EN typed against it |
 | Data | UI → query hooks (`src/data/queries.ts`, TanStack Query) → `ContentRepository` interface → Supabase repository (`src/data/supabase/`, anon key, rows validated with Zod). Dev-only fixture repository when Supabase isn't configured (`src/data/source.ts`). See §7 |
 | Local state | AsyncStorage-backed stores (`src/lib/persisted-store.ts`) for favorites, reminders and notification preferences. No account needed |
-| Session storage (Sprint 3+) | `expo-secure-store` for the auth token, created only for guests and members |
-| Config | `src/config/env.ts`: `EXPO_PUBLIC_*` variables (invite base URL, Branch key, Supabase). See `.env.example` |
+| Session (Sprint 5) | One session-capable Supabase client (`src/features/auth/`), anon key only. Auth session persisted in AsyncStorage; Guest Pass secrets (QR token, member's own share links) in `expo-secure-store`. No user exists until « Activer mon Pass » (guest) or a member signs in |
+| Config | `src/config/env.ts`: `EXPO_PUBLIC_*` variables (Branch key + domains, invite base URL, Supabase). See `.env.example`. `app.config.ts` adds the Branch plugin, associated domains and Android app links only when they are set |
 | Notifications (Sprint 4) | `expo-notifications`: local reminders + Expo push tokens |
 
 ### Folder structure
@@ -60,11 +60,13 @@ apps/mobile/
         _layout.tsx
         index.tsx  planning.tsx  activites.tsx  actualites.tsx  profil.tsx
       classes/[id].tsx  activities/[slug].tsx  coaches/[slug].tsx  news/[slug].tsx
-      pass/index.tsx    Profil › Pass & Invitations (members)
+      pass/index.tsx  pass/offer.tsx  pass/[id].tsx   Pass & Invitations, Offrir un Pass, invitation detail (members)
+      invite/[token].tsx  invite/code.tsx              invitation preview + activation, short-code fallback
+      guest/pass.tsx    Mon Pass Invité (QR)
+      +native-intent.tsx  validates every incoming URL (invitation links)
       settings/notifications.tsx  settings/account.tsx  help.tsx  login.tsx
       dev/ui.tsx        design-system gallery (dev builds only)
       +not-found.tsx
-      # upcoming: invite/[token].tsx, guest/index.tsx (Sprint 5)
     components/
       ui/               primitives: Text, Button, IconButton, Chip, ChipRow, Badge, Card,
                         Avatar, ListRow/ListGroup, InfoTile, IntensityMeter, BottomSheet,
@@ -144,7 +146,7 @@ So instants are never resolved through the device's `Africa/Casablanca` rules:
 | Planning | `class_sessions` (concrete dated sessions, visibility, cancellation) |
 | Preferences | `favorite_activities`, `class_reminders`, `notification_preferences`, `device_tokens` |
 | Content | `news`, `notifications` (admin push campaigns, simple targeting) |
-| Guest passes | `guest_pass_balances`, `guest_invitations`, `guest_passes`, `guest_redemptions`, view `guest_pass_availability` |
+| Guest passes | `guest_pass_balances`, `guest_invitations`, `guest_passes`, `guest_redemptions`, `guest_pass_events`, `guest_code_attempts` (see §9) |
 | Config | `app_settings` (key/value jsonb; `is_public` exposes it to apps) |
 
 Changes from the suggested entity list, and why:
@@ -155,7 +157,7 @@ Changes from the suggested entity list, and why:
   cancelled. Visitors' reminders stay on the device only.
 * **`notification_preferences`** was added as its own table, separate from `profiles`.
 * **Guest-pass "available" is computed, not stored.** Availability = allowance −
-  invitations that consume a pass (view `guest_pass_availability`). Stored
+  invitations still holding a pass (`private.available_passes()`, §9). Stored
   invitation statuses: `sent, activated, used, expired, cancelled, converted`.
 * **Translations**: content tables carry an `i18n jsonb` column
   (`{ar:{…}, en:{…}}`) next to the French source columns.
@@ -174,31 +176,21 @@ Changes from the suggested entity list, and why:
 * **Visitors** (default) browse Planning, Activities, Coaches, News and club information
   with **no Supabase user**. Favorites, reminders and notification preferences live on the
   device.
-* **Guests** get a Supabase identity only when they activate a Guest Pass.
+* **Guests** get a Supabase identity (anonymous user) only when they tap « Activer mon
+  Pass » — never on install or launch. `IdentityService` (`src/features/auth/identity.ts`)
+  is the only code that calls Supabase Auth.
 * **Members**: the activation and sign-in flow is not decided yet. The auth layer must
-  support phone-based sign-in for members imported by the club. Sprint 2 uses dev-only mock
-  member state (`src/features/session/session.tsx`). Release builds are always visitors until
-  real auth lands. No membership sync is built.
+  support phone-based sign-in for members imported by the club. Release builds have no
+  member sign-in, so they only ever hold visitor or guest sessions. Development builds can
+  show a demo member (fixtures, no backend) or sign in a local test member
+  (`src/features/session/dev-provider.ts`, excluded from release bundles). No membership
+  sync is built.
 
-### Guest-pass flow (Sprints 5–6)
+### Guest-pass flow
 
-Primary path: **Branch deferred deep linking**. No hardcoded domain: the link base
-comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BRANCH_KEY`.
-
-1. Member → `create_guest_invitation(invitee_name)` → checks availability → returns the raw
-   link token once → Branch link carrying the token, shared via the native share sheet
-   (WhatsApp first).
-2. Friend opens the link. If the app is installed, it opens `invite/[token]` directly.
-   Otherwise the friend goes to the store, installs, opens Arena Fit, and the Branch SDK
-   returns the original link data on first launch, so the invitation is recovered automatically.
-3. Fallback only if deferred attribution fails: a short invitation code shown on the
-   link's web fallback page, entered once in the app.
-4. App → `activate_guest_invitation(token)` (the guest identity is created here) → profile becomes `guest`, a
-   `guest_passes` row is created with a **different** QR token (raw value kept in SecureStore,
-   re-issuable via `rotate_guest_pass_qr()`).
-5. Reception → `check_guest_pass(qr)` (read-only verdict: valid / invalid / expired / used /
-   cancelled + sponsor, expiry) → `redeem_guest_pass(qr)` inserts into `guest_redemptions`
-   (unique per pass, so double use is impossible even with concurrent scans) and sets status `used`.
+Implemented in Sprint 5 (invitation → share → activation → QR) — see §9. Sprint 6 adds
+reception scanning: `check_guest_pass(qr)` (read-only verdict) and `redeem_guest_pass(qr)`
+(inserts into `guest_redemptions`, unique per pass, sets `used`).
 
 ## 5. Phased plan
 
@@ -208,7 +200,7 @@ comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BR
 | 2 ✅ | Home, Planning (week selector + filters), Class detail, Activities, Coaches, News list/detail, Profile, Pass & Invitations UI, local reminders/favorites. Dev fixtures based on the real roster | All screens navigable with realistic data, plus loading, empty and error states |
 | 3 ✅ | Supabase repositories for coaches, activities, planning and news (no login), controlled club clock, image storage, pgTAP RLS/seed/clock tests, cache strategy, release-bundle check | App runs against Supabase as a visitor, RLS verified in SQL and over HTTP |
 | 4 ✅ | Native local reminders (15/30/60/120 min) via a platform-independent ReminderService, contextual permission UX, reconciliation with the live planning, notification tap routing, Android channel + monochrome icon, notification preferences, push interface (not wired), EAS dev-build profiles | Logic covered by tests; device behaviour per docs/DEV_BUILD.md checklist |
-| 5 | Guest-pass RPCs, offer/share flow, Branch deferred deep linking (+ code fallback), invitation states, Guest Mode gating | End-to-end: member shares → guest activates → QR shown |
+| 5 ✅ | Guest-pass server operations, offer/share flow, InvitationLinkService (Branch + local), short-code fallback, invitation states, cancellation/expiry, Guest Mode, Guest Pass QR | End-to-end on web against local Supabase; Branch/device checks listed in docs/BRANCH.md |
 | 6 | Admin app scaffold and auth, `/reception/scanner`, check/redeem RPCs | A pass can't be redeemed twice. All verdict screens done |
 | 7 | Admin CRUD: planning (duplicate session/week), coaches (photo upload), activities, news (publish/unpublish), notifications, members, guest passes, settings | Admin changes show up in the app |
 | 8 | Tests (RLS/pgTAP, RPC, component), error boundaries, performance, a11y pass, security review, EAS builds | Release candidates for Android and iOS |
@@ -220,9 +212,9 @@ comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BR
    icon is the logo's triangle mark. A square app-icon export of the brand is still needed.
 2. **No photography yet.** Image slots exist everywhere (`imageUrl` / `coverUrl` / `photoUrl`).
    Until club photos are uploaded, `Artwork` shows a category-tinted placeholder.
-3. **Branch setup** needs a Branch account, the final domain, iOS associated domains and
-   Android intent filters (config plugin) in the Guest Pass sprint. Branch's React Native
-   SDK needs a development build, not Expo Go.
+3. **Branch setup** needs a Branch account and the final link domain; everything else is
+   wired behind env variables (docs/BRANCH.md). Deferred deep linking is **not verified**
+   until tested on real devices with real store installs.
 4. **Member authentication** is pending your decision. The `AuthProvider` boundary
    (`src/features/session/`) is ready for it.
 5. **Device-only verification pending.** Native delivery, tap routing (cold start, background,
@@ -236,9 +228,8 @@ comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BR
    `react` version. Otherwise the admin app gets its own install.
 9. **Arabic translations** are a draft and need a native review. RTL layout gets QA'd
    before AR ships. The app is pinned to French until then.
-10. **Guest Pass rules not yet set:** invitation-link validity, pass validity, and whether an
-    expired, never-activated invitation gives the pass back (currently defaults to yes in
-    the `guest_pass_availability` view). To decide before Sprint 5.
+10. **Guest Pass rules** are settings (`app_settings`, §9): 3 passes, 15 days, 1 visit,
+    pass returned when an invitation expires unused. Admin editing comes with the dashboard.
 
 ## 7. Data layer (Sprint 3)
 
@@ -329,3 +320,113 @@ UI (ReminderSheet, ClassCard, Class Details, settings)
 * **Remote push:** `src/features/notifications/push.ts` documents the interface and flow
   only. No token collection, endpoint or sending yet.
 * **Dev builds:** `apps/mobile/eas.json` profiles, steps and credentials in `docs/DEV_BUILD.md`.
+
+## 9. Guest Pass (Sprint 5)
+
+### Lifecycle
+
+```
+[available] ─create──▶ sent ──activate──▶ activated ──(Sprint 6 reception)──▶ used ──(later)──▶ converted
+               │            │                 │
+               │            ├─cancel─▶ cancelled      (pass returned to the balance)
+               │            └─expiry─▶ expired ◀──────┘  (unused at expires_at: pass returned)
+```
+
+* "available" is not a row: it is `allowance − invitations still holding a pass`. Each
+  invitation has `pass_returned`, set in the same UPDATE that cancels/expires it, so a pass
+  can never come back twice.
+* `cancelled` only from `sent`; `activated/used/converted` can't be cancelled.
+* Expiry applies to `sent` and `activated` (not yet used) invitations at `expires_at`
+  (= creation + `invitation_validity_days`); the guest pass shares that date.
+* `converted` is set by staff later; nothing detects it automatically.
+
+### Data model (migration `20261026000000_guest_pass_flow.sql`)
+
+Extends the Sprint 1 tables rather than duplicating them:
+
+| Table / column | Purpose |
+| --- | --- |
+| `guest_pass_balances.allowance` | passes granted (default from `guest_pass.default_allowance`, row created lazily for eligible members) |
+| `guest_invitations` + `short_code_hash`, `expires_at`, `pass_returned`, `used_at`, `expired_at`, `last_shared_at`, `link_rotated_at` | one row per offered pass; hashes of the share token and short code; timestamps per state; DB checks tie states to timestamps |
+| `guest_passes.qr_token_hash`, `qr_issued_at` | the activated pass and the hash of its QR redemption token |
+| `guest_pass_events` | `gift_created, gift_shared, link_rotated, invitation_opened, gift_activated, gift_cancelled, gift_expired, qr_reissued` — funnel created→activated→used→converted is computable from events + timestamps |
+| `guest_code_attempts` | failed short-code lookups (rate limiting) |
+| `profiles.show_name_on_invitations` | whether the inviter's first name appears on previews |
+| `app_settings` | `guest_pass.invitation_validity_days` (15), `sessions_per_pass` (1), `refund_expired_unused` (true), `daily_invitation_limit` (10), `code_attempts_limit` (10) / `code_attempts_window_minutes` (15) |
+
+### Server operations (SECURITY DEFINER, `search_path = ''`)
+
+| Function | Who | What |
+| --- | --- | --- |
+| `create_guest_invitation(name)` | eligible member | locks the member's balance row (`FOR UPDATE` → concurrent taps queue), applies expiry, checks balance / daily limit / config, generates token + code server-side, stores hashes, returns raw values **once** |
+| `get_my_guest_invitations()` | member | balance + own invitations |
+| `reshare_guest_invitation(id)` | member, `sent` only | new link + code (raw values are not stored, so "share again" from another device rotates them) |
+| `record_guest_invitation_shared(id)` | member | share-sheet completed (analytics) |
+| `cancel_guest_invitation(id)` | member, `sent` only | cancels and returns the pass atomically |
+| `preview_guest_invitation(token, code)` | anon + authenticated | public preview by secret only: result + inviter first name (if allowed) + sessions + date. No ids, no invitee data |
+| `activate_guest_invitation(token, code)` | guest identity | `FOR UPDATE` on the invitation; idempotent: same guest → existing pass (no new QR token), other guest → `already_claimed`; members/inviter refused; one active pass per guest |
+| `get_my_guest_pass()` / `reissue_guest_pass_qr()` | guest | current pass; new QR token (old one revoked) when the device lost it |
+| `expire_guest_invitations()` | **service_role only** | scheduled job; idempotent |
+
+`EXECUTE` is revoked from `public/anon/authenticated` and granted per function. Expiry is also
+applied lazily by every operation, so correctness never depends on the job.
+
+**Scheduler.** If `pg_cron` is enabled when the migration runs, it schedules
+`expire-guest-invitations` every 15 minutes. Otherwise enable pg_cron in the Supabase
+dashboard and run:
+`select cron.schedule('expire-guest-invitations', '*/15 * * * *', 'select public.expire_guest_invitations()');`
+
+### Secrets
+
+| Secret | Generated | Stored server-side | Where the raw value lives |
+| --- | --- | --- | --- |
+| Share token (link) | server, 256-bit, base64url | `sha256` only | the share message; the member's device (SecureStore) |
+| Short code `AF-XXXX-XXXX` | server, 8 chars from a 31-char alphabet without look-alikes (≈39.6 bits, rejection sampling) | `sha256` of the normalised code | share screen / invitation detail of the member |
+| QR redemption token | server at activation, 256-bit | `sha256` only | guest device (SecureStore; localStorage in the web preview) |
+
+QR payload: `AFG1.<token>` — opaque, versioned, no member/guest data. **Known MVP limitation:**
+the QR is stable for the life of the pass, so a screenshot or forwarded image works until it is
+redeemed once (Sprint 6 makes redemption single-use). No rotating QR.
+
+**Enumeration / abuse.** Ids grant nothing (all reads by secret through functions; hashes are
+not selectable through column grants). Failed short-code lookups are rate limited per client
+(user id, else `x-forwarded-for` from the Supabase gateway): 10 failures / 15 min. With ~2^39.6
+codes, guessing a live code is impractical. Local limits: the local stack's gateway sets the
+forwarded address itself; on Supabase the header comes from its API gateway. Add an edge
+rate limit (e.g. Cloudflare / Supabase API rate limits) before launch for defence in depth.
+
+### Access control (RLS + grants)
+
+* anon: no access to any guest table (permission denied), only `preview_guest_invitation`.
+* members: read their own invitations/balance (no hash columns); no writes.
+* guests: read their own pass (no hash column); no writes.
+* staff (`is_staff`) can read for support; admin UI comes later.
+
+### App
+
+```
+src/features/auth/        IdentityService (only caller of Supabase Auth), session client, member profile
+src/features/guest-pass/  types, Supabase repository (RPC + Zod), hooks (TanStack),
+                          links.ts (pure validation: tokens, codes, Branch payloads, URLs, QR),
+                          link-service.ts (InvitationLinkService: Branch + local adapters),
+                          link-runtime(.web).ts (composition), share(.web).ts, components/
+src/app/+native-intent.tsx  every incoming URL → validated app path
+```
+
+* Identity is created in `useActivateInvitation()` only; if the claim fails, a freshly created
+  identity is signed out again.
+* Expo Router stays the navigation source of truth: link adapters only report validated
+  invitations; `InvitationLinkListener` pushes `/invite/<token>`.
+* Guest Mode: Accueil starts with « Votre Pass Arena Fit » then the normal content; Profil
+  shows « Mon Pass Invité » and « Quitter le mode invité ». Member-only routes (`/pass*`)
+  redirect; no subscription, sending, rewards or admin for guests.
+* Release bundles: `npm run check:release` fails on dev fixtures, the demo/test member, dev
+  credentials, test tokens, Branch test keys or the service-role key.
+
+### Local stack & tests
+
+* `scripts/local-stack/up.sh`: PostgreSQL + GoTrue (real anonymous sign-in) + PostgREST + gateway
+  on :54321, test members, secrets in `.local-stack/` (git-ignored).
+* `supabase/tests/guest_pass.test.sql` (pgTAP, 69 checks) and
+  `apps/mobile/tests/guest-pass.integration.test.mts` (real API: concurrency, idempotency,
+  RLS), `apps/mobile/tests/guest-pass-links.test.mts` (payload/URL validation).

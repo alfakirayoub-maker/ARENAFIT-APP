@@ -19,12 +19,14 @@ import { dataSource } from '@/data/source';
 import { useFavoriteActivities } from '@/features/favorites/store';
 import { useNotificationPermission } from '@/features/reminders/hooks';
 import { setSimulatedPermission } from '@/features/reminders/simulated-permission';
-import { useSession, type SessionKind } from '@/features/session/session';
+import { useMyInvitations } from '@/features/guest-pass/hooks';
+import { useSession, type DevSessionChoice, type Session } from '@/features/session/session';
 import { spacing } from '@/theme';
 
 export default function ProfileScreen() {
   const { t } = useTranslation();
-  const { session, setMockKind, signOut } = useSession();
+  const { session, dev, signOut } = useSession();
+  const invitations = useMyInvitations();
   const favorites = useFavoriteActivities();
   const activitiesQuery = useActivities();
   const favoriteActivities = (activitiesQuery.data ?? []).filter((a) => favorites.isFavorite(a.slug));
@@ -33,14 +35,24 @@ export default function ProfileScreen() {
     session.kind === 'member'
       ? `${session.member.firstName} ${session.member.lastName}`
       : session.kind === 'guest'
-        ? (session.firstName ?? t('profile.kind.guest'))
+        ? t('profile.kind.guest')
         : t('profile.kind.visitor');
 
-  const confirmSignOut = () =>
-    Alert.alert(t('profile.logout'), undefined, [
+  const signOutLabel = session.kind === 'guest' ? t('guestPass.leave.label') : t('profile.logout');
+  const confirmSignOut = () => {
+    const title = session.kind === 'guest' ? t('guestPass.leave.title') : t('profile.logout');
+    const body = session.kind === 'guest' ? t('guestPass.leave.body') : undefined;
+    const confirm = session.kind === 'guest' ? t('guestPass.leave.confirm') : t('profile.logout');
+    // react-native-web has no Alert.alert buttons.
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm?.([title, body].filter(Boolean).join('\n\n'))) signOut();
+      return;
+    }
+    Alert.alert(title, body, [
       { text: t('common.cancel'), style: 'cancel' },
-      { text: t('profile.logout'), style: 'destructive', onPress: signOut },
+      { text: confirm, style: 'destructive', onPress: signOut },
     ]);
+  };
 
   return (
     <Screen>
@@ -82,6 +94,7 @@ export default function ProfileScreen() {
             <Text variant="body" color="secondary" style={styles.cardBody}>
               {t('profile.guest.body')}
             </Text>
+            <Button label={t('guestPass.home.show')} icon="qr-code-outline" onPress={() => router.push('/guest/pass')} />
           </Card>
         ) : null}
       </View>
@@ -116,9 +129,15 @@ export default function ProfileScreen() {
             <ListRow
               icon="gift-outline"
               label={t('profile.passes')}
-              value={`${session.guestPasses.available}`}
+              value={invitations.data ? `${invitations.data.available}` : undefined}
               onPress={() => router.push('/pass')}
             />
+          )}
+          {session.kind === 'guest' && (
+            <ListRow icon="ticket-outline" label={t('profile.myGuestPass')} onPress={() => router.push('/guest/pass')} />
+          )}
+          {session.kind === 'visitor' && (
+            <ListRow icon="gift-outline" label={t('profile.inviteCode')} onPress={() => router.push('/invite/code')} />
           )}
           <ListRow icon="notifications-outline" label={t('profile.notifications')} onPress={() => router.push('/settings/notifications')} />
         </ListGroup>
@@ -131,19 +150,29 @@ export default function ProfileScreen() {
           <ListRow icon="settings-outline" label={t('profile.account')} onPress={() => router.push('/settings/account')} />
           <ListRow icon="help-circle-outline" label={t('profile.help')} onPress={() => router.push('/help')} />
           {session.kind !== 'visitor' && (
-            <ListRow icon="log-out-outline" label={t('profile.logout')} destructive onPress={confirmSignOut} />
+            <ListRow icon="log-out-outline" label={signOutLabel} destructive onPress={confirmSignOut} />
           )}
         </ListGroup>
       </View>
 
-      {setMockKind && <DevTools kind={session.kind} onChange={setMockKind} />}
+      {dev && <DevTools session={session} choices={dev.choices} onChange={(c) => void dev.select(c)} />}
     </Screen>
   );
 }
 
-/** Development-only: preview the app as a visitor, guest or member. */
-function DevTools({ kind, onChange }: { kind: SessionKind; onChange: (k: SessionKind) => void }) {
+/** Development-only: visitor, demo member (fixtures) or the local test member (real Supabase user). */
+function DevTools({
+  session,
+  choices,
+  onChange,
+}: {
+  session: Session;
+  choices: DevSessionChoice[];
+  onChange: (choice: DevSessionChoice) => void;
+}) {
   const { t } = useTranslation();
+  const current: DevSessionChoice | null =
+    session.kind === 'visitor' ? 'visitor' : session.kind === 'member' ? (session.demo ? 'member-demo' : 'member-test') : null;
   return (
     <View style={styles.section}>
       <SectionHeader title={t('profile.dev')} />
@@ -151,8 +180,8 @@ function DevTools({ kind, onChange }: { kind: SessionKind; onChange: (k: Session
         {t('profile.devSession')}
       </Text>
       <ChipRow
-        options={(['visitor', 'guest', 'member'] as const).map((k) => ({ value: k, label: t(`profile.kind.${k}`) }))}
-        value={kind}
+        options={choices.map((c) => ({ value: c, label: t(`profile.devChoices.${c}`) }))}
+        value={current ?? ('' as DevSessionChoice)}
         onChange={onChange}
       />
       <Text variant="caption" color="tertiary" style={styles.devHint}>

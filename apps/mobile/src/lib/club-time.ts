@@ -94,3 +94,15 @@ export function formatDateShort(date: ClubDate): string {
 export function formatPublishedAt(iso: string): string {
   return format(clubWallClock(new Date(iso)).date, { day: 'numeric', month: 'short', year: 'numeric' });
 }
+
+/** "15 novembre 2026": the club-local date of an instant. */
+export function formatInstantDateLong(iso: string): string {
+  return format(clubWallClock(new Date(iso)).date, { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+/** Whole club days from today until the club-local date of `iso` (0 = today, negative = past). */
+export function clubDaysUntil(iso: string, now: Date = new Date()): number {
+  const target = Date.parse(`${clubWallClock(new Date(iso)).date}T00:00:00Z`);
+  const today = Date.parse(`${clubWallClock(now).date}T00:00:00Z`);
+  return Math.round((target - today) / 86_400_000);
+}

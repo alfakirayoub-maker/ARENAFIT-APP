@@ -103,16 +103,4 @@ export type MemberProfile = {
 
 export type GuestInvitationStatus = 'sent' | 'activated' | 'used' | 'expired' | 'cancelled' | 'converted';
 
-export type GuestInvitation = {
-  id: string;
-  inviteeName: string | null;
-  status: GuestInvitationStatus;
-  /** ISO 8601 instant */
-  createdAt: string;
-};
 
-export type GuestPassSummary = {
-  allowance: number;
-  available: number;
-  invitations: GuestInvitation[];
-};
