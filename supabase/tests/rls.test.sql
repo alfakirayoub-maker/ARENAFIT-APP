@@ -60,10 +60,10 @@ select is_empty($$ select 1 from profiles $$, 'anon cannot read profiles');
 select is_empty($$ select 1 from memberships $$, 'anon cannot read memberships');
 select is_empty($$ select 1 from admin_users $$, 'anon cannot read staff');
 select is_empty($$ select 1 from notifications $$, 'anon cannot read notification campaigns');
-select is_empty($$ select 1 from guest_pass_balances $$, 'anon cannot read guest pass balances');
-select is_empty($$ select 1 from guest_invitations $$, 'anon cannot read invitations');
-select is_empty($$ select 1 from guest_passes $$, 'anon cannot read guest passes');
-select is_empty($$ select 1 from guest_redemptions $$, 'anon cannot read redemptions');
+select throws_ok($$ select 1 from guest_pass_balances $$, '42501', null, 'anon has no access to guest pass balances');
+select throws_ok($$ select 1 from guest_invitations $$, '42501', null, 'anon has no access to invitations');
+select throws_ok($$ select 1 from guest_passes $$, '42501', null, 'anon has no access to guest passes');
+select throws_ok($$ select 1 from guest_redemptions $$, '42501', null, 'anon has no access to redemptions');
 
 select throws_ok($$ insert into coaches (slug, display_name) values ('fake', 'FAKE') $$, '42501', null, 'anon cannot create coaches');
 select throws_ok($$ insert into activities (slug, name, category) values ('fake', 'Fake', 'fitness') $$, '42501', null, 'anon cannot create activities');
