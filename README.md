@@ -1,14 +1,15 @@
 # Arena Fit
 
 Official Arena Fit app: a mobile companion for members and invited guests, plus
-an admin dashboard (coming in Sprint 6–7).
+an admin dashboard (next sprints).
 
 ```
 apps/mobile     Expo (React Native) app — iOS / Android
 supabase/       database migrations, RLS policies, seed data
 docs/           architecture & plan (docs/ARCHITECTURE.md), dev builds & notifications (docs/DEV_BUILD.md),
-                invitation links & Branch (docs/BRANCH.md)
-scripts/        DB tests (scripts/db), local Supabase-like API (scripts/local-stack)
+                invitation links & Branch (docs/BRANCH.md), reception QR operations (docs/RECEPTION.md)
+scripts/        DB tests (scripts/db), local Supabase-like API (scripts/local-stack),
+                reception QR print assets (scripts/reception)
 ```
 
 ## Getting started

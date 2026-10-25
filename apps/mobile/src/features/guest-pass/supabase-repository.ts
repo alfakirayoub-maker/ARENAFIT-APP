@@ -3,6 +3,8 @@ import { z } from 'zod';
 
 import { DataError } from '@/data/errors';
 
+import { measureClockOffset } from './checkin';
+
 import {
   GuestPassError,
   type ActivationResult,
@@ -43,7 +45,9 @@ const passRow = z.object({
   valid_until: instant,
   activated_at: instant.nullable(),
   redeemed_at: instant.nullable(),
-  station_name: z.string().nullable(),
+  reception_station_name: z.string().nullable(),
+  confirmation_until: instant.nullable(),
+  server_now: instant,
 });
 
 const previewRow = z.object({
@@ -81,11 +85,31 @@ const ERROR_CODES: readonly GuestPassErrorCode[] = [
 ];
 
 const redemptionRow = z.discriminatedUnion('result', [
-  z.object({ result: z.literal('redeemed'), redeemed_at: instant, station_name: z.string(), sessions: z.number().int() }),
-  z.object({ result: z.literal('already_used'), redeemed_at: instant.nullable(), station_name: z.string().nullable().optional() }),
+  z.object({
+    result: z.literal('redeemed'),
+    redeemed_at: instant,
+    reception_station_name: z.string(),
+    sessions: z.number().int(),
+    confirmation_until: instant,
+    server_now: instant,
+  }),
+  z.object({
+    result: z.literal('already_used'),
+    redeemed_at: instant.nullable(),
+    reception_station_name: z.string().nullable().optional(),
+    confirmation_until: instant.nullable().optional(),
+    server_now: instant,
+  }),
   z.object({ result: z.literal('expired'), valid_until: instant.nullable().optional() }),
   z.object({ result: z.enum(['no_pass', 'invalid_qr', 'station_inactive', 'not_guest']) }),
 ]);
+
+/** Runs a request and measures the device↔server clock offset from its server_now. */
+async function timed<T>(request: () => Promise<T>): Promise<{ value: T; sentAt: number; receivedAt: number }> {
+  const sentAt = Date.now();
+  const value = await request();
+  return { value, sentAt, receivedAt: Date.now() };
+}
 
 type RpcResult = { data: unknown; error: PostgrestError | null; status: number };
 
@@ -128,14 +152,16 @@ const toInvitation = (r: z.infer<typeof invitationRow>): Invitation => ({
   lastSharedAt: r.last_shared_at,
 });
 
-const toPass = (r: z.infer<typeof passRow>): GuestPass => ({
+const toPass = (r: z.infer<typeof passRow>, clockOffsetMs: number): GuestPass => ({
   status: r.status,
   inviterName: r.inviter_name,
   sessions: r.sessions,
   validUntil: r.valid_until,
   activatedAt: r.activated_at,
   redeemedAt: r.redeemed_at,
-  stationName: r.station_name,
+  stationName: r.reception_station_name,
+  confirmationUntil: r.confirmation_until,
+  clockOffsetMs,
 });
 
 const refArgs = (ref: { token?: string; code?: string }) => ({ p_token: ref.token ?? null, p_code: ref.code ?? null });
@@ -191,23 +217,38 @@ export function createSupabaseGuestPassRepository(client: SupabaseClient): Guest
     },
 
     async activateInvitation(ref): Promise<ActivationResult> {
-      const r = await call(activationRow, client.rpc('activate_guest_invitation', refArgs(ref)));
-      if ('pass' in r) return { result: r.result, pass: toPass(r.pass) };
+      const { value: r, sentAt, receivedAt } = await timed(() => call(activationRow, client.rpc('activate_guest_invitation', refArgs(ref))));
+      if ('pass' in r) return { result: r.result, pass: toPass(r.pass, measureClockOffset(r.pass.server_now, sentAt, receivedAt)) };
       return { result: r.result };
     },
 
     async getMyGuestPass() {
-      const r = await call(passRow.nullable(), client.rpc('get_my_guest_pass'));
-      return r ? toPass(r) : null;
+      const { value: r, sentAt, receivedAt } = await timed(() => call(passRow.nullable(), client.rpc('get_my_guest_pass')));
+      return r ? toPass(r, measureClockOffset(r.server_now, sentAt, receivedAt)) : null;
     },
 
     async redeemMyGuestPass(receptionQr): Promise<RedemptionResult> {
-      const r = await call(redemptionRow, client.rpc('redeem_my_guest_pass', { p_reception_qr: receptionQr }));
+      const { value: r, sentAt, receivedAt } = await timed(() =>
+        call(redemptionRow, client.rpc('redeem_my_guest_pass', { p_reception_qr: receptionQr })),
+      );
       switch (r.result) {
         case 'redeemed':
-          return { result: r.result, redeemedAt: r.redeemed_at, stationName: r.station_name, sessions: r.sessions };
+          return {
+            result: r.result,
+            redeemedAt: r.redeemed_at,
+            stationName: r.reception_station_name,
+            sessions: r.sessions,
+            confirmationUntil: r.confirmation_until,
+            clockOffsetMs: measureClockOffset(r.server_now, sentAt, receivedAt),
+          };
         case 'already_used':
-          return { result: r.result, redeemedAt: r.redeemed_at, stationName: r.station_name ?? null };
+          return {
+            result: r.result,
+            redeemedAt: r.redeemed_at,
+            stationName: r.reception_station_name ?? null,
+            confirmationUntil: r.confirmation_until ?? null,
+            clockOffsetMs: measureClockOffset(r.server_now, sentAt, receivedAt),
+          };
         case 'expired':
           return { result: r.result, validUntil: r.valid_until ?? null };
         default:

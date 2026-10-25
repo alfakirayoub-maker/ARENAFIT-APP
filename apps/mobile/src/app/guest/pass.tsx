@@ -10,9 +10,9 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
-import { useMyGuestPass } from '@/features/guest-pass/hooks';
+import { LiveConfirmation, UsedConfirmation } from '@/features/guest-pass/components/RedemptionResultView';
+import { useCheckInView, useMyGuestPass } from '@/features/guest-pass/hooks';
 import { useSession } from '@/features/session/session';
-import { clubWallClock } from '@/lib/club-clock';
 import { formatInstantDateLong } from '@/lib/club-time';
 import { colors, radius, spacing } from '@/theme';
 
@@ -33,8 +33,22 @@ export default function UseGuestPassScreen() {
   const query = useMyGuestPass();
   const pass = query.data;
   const active = pass?.status === 'activated';
+  const used = pass?.status === 'used' || pass?.status === 'converted';
+  const checkIn = useCheckInView(used ? pass : null);
 
   if (restored && session.kind !== 'guest') return <Redirect href="/" />;
+
+  // Right after a redemption (or a reopen inside the server's window): live confirmation.
+  if (used && pass?.redeemedAt && checkIn.view.kind === 'live') {
+    return (
+      <LiveConfirmation
+        redeemedAt={pass.redeemedAt}
+        stationName={pass.stationName}
+        serverNow={checkIn.serverNow}
+        onDone={() => router.replace('/')}
+      />
+    );
+  }
 
   return (
     <DetailScreen
@@ -102,21 +116,16 @@ export default function UseGuestPassScreen() {
             </Text>
           )}
         </>
+      ) : used ? (
+        <UsedConfirmation redeemedAt={pass.redeemedAt} stationName={pass.stationName} serverNow={checkIn.serverNow} />
       ) : (
         <View style={styles.inactive}>
-          <Icon name={pass.status === 'expired' ? 'time-outline' : 'checkmark-done-outline'} size={32} color={colors.textSecondary} />
+          <Icon name="time-outline" size={32} color={colors.textSecondary} />
           <Text variant="title" style={styles.center}>
-            {pass.status === 'expired' ? t('guestPass.result.states.expired.title') : t('guestPass.result.states.already_used.title')}
+            {t('guestPass.result.states.expired.title')}
           </Text>
           <Text variant="body" color="secondary" style={styles.center}>
-            {pass.status === 'expired'
-              ? t('guestPass.result.states.expired.body')
-              : pass.redeemedAt
-                ? t('guestPass.result.states.already_used.body', {
-                    date: formatInstantDateLong(pass.redeemedAt),
-                    time: clubWallClock(new Date(pass.redeemedAt)).time,
-                  })
-                : t('guestPass.home.used')}
+            {t('guestPass.result.states.expired.body')}
           </Text>
         </View>
       )}

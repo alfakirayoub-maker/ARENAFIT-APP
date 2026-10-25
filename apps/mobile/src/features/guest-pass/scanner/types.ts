@@ -1,6 +1,8 @@
 export type ReceptionScannerProps = {
-  /** False while a scan is being validated (ignore further frames). */
+  /** False while a scan is being validated: frames are not reported. */
   active: boolean;
-  /** Raw scanned text; validated by the caller (parseReceptionQr). */
+  /** Raw scanned text; handled by ScanController (validation, de-duplication). */
   onScan: (data: string) => void;
+  /** Torch on (native only; ignored where unsupported). */
+  torch: boolean;
 };

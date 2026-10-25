@@ -1,12 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 
 import { identity } from '@/features/auth';
 import { useSession } from '@/features/session/session';
 
+import { checkInView, serverTimeMs } from './checkin';
 import { guestPassRepository as repo, invitationLinks, shareSecrets } from './index';
 import { buildShareMessage, type InvitationRef } from './links';
 import { shareOnWhatsApp, shareText, type ShareOutcome } from './share';
-import { GuestPassError, type ActivationResult } from './types';
+import { GuestPassError, type ActivationResult, type GuestPass, type RedemptionResult } from './types';
 
 export const guestPassKeys = {
   all: ['guest-pass'] as const,
@@ -151,14 +153,46 @@ export function useMyGuestPass() {
 }
 
 /**
- * « Scanner le QR »: redeems the signed-in guest's own pass at the station
- * whose reception QR was scanned. Only the scanned payload is sent — the
- * server identifies the guest from the session.
+ * Redeems the signed-in guest's own pass at the station whose reception QR was
+ * scanned. Only the scanned payload is sent — the server identifies the guest.
+ * The cached pass is updated from the SERVER response (status, time, window),
+ * never from local assumptions, then refetched. Plain function (not a hook) so
+ * the scanner's ScanController can own the single in-flight request.
  */
-export function useRedeemGuestPass() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (receptionQr: string) => repo.redeemMyGuestPass(receptionQr),
-    onSettled: () => qc.invalidateQueries({ queryKey: guestPassKeys.pass }),
-  });
+export async function redeemAndUpdatePass(qc: QueryClient, receptionQr: string): Promise<RedemptionResult> {
+  const r = await repo.redeemMyGuestPass(receptionQr);
+  if (r.result === 'redeemed' || r.result === 'already_used') {
+    qc.setQueryData<GuestPass | null>(guestPassKeys.pass, (prev) =>
+      prev
+        ? {
+            ...prev,
+            status: 'used',
+            redeemedAt: r.redeemedAt,
+            stationName: r.stationName,
+            confirmationUntil: r.confirmationUntil,
+            clockOffsetMs: r.clockOffsetMs,
+          }
+        : prev,
+    );
+  }
+  void qc.invalidateQueries({ queryKey: guestPassKeys.pass });
+  return r;
+}
+
+/**
+ * Live (« PASS VALIDÉ ») vs used (« PASS UTILISÉ ») for a redeemed pass, from
+ * server time; re-evaluated every second so the screen switches by itself
+ * when the window ends. Also returns the server-aligned clock for display.
+ */
+export function useCheckInView(pass: Pick<GuestPass, 'confirmationUntil' | 'clockOffsetMs'> | null | undefined) {
+  const [deviceNow, setDeviceNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setDeviceNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const offset = pass?.clockOffsetMs ?? 0;
+  return {
+    view: pass ? checkInView(pass, deviceNow) : ({ kind: 'used' } as const),
+    serverNow: new Date(serverTimeMs(offset, deviceNow)),
+  };
 }

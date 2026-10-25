@@ -113,17 +113,84 @@ Run on at least one Android 13+ phone and one iPhone:
 * SecureStore holds only the member's own invitation links. Guests store no secret; their
   session (AsyncStorage) identifies the pass. Uninstalling signs a guest out (MVP limitation).
 
-### Reception check-in checklist (guest scans the printed QR)
+## Reception check-in — device builds (Sprint 6)
 
-Print the station QR (`node scripts/reception/station-qr.mjs 'AFR1.…' out.svg`) in two sizes
-(≈ 8 cm and ≈ 15 cm). On at least one iPhone and one Android phone:
+### Backend the phone can reach
 
-1. « Utiliser mon Pass » › « Scanner le QR » → camera permission explained, then the OS prompt;
-   deny once → « Caméra désactivée » + « Ouvrir les réglages » works.
-2. Camera opens quickly; QR recognised at 20 cm, 50 cm and 1 m, in normal and low light.
-3. Valid QR → « PASS VALIDÉ » readable by staff at arm's length; live clock ticking.
-4. Scan again → « Pass déjà utilisé » with the time; no second redemption in the DB.
-5. Deactivated station QR → « QR désactivé »; rotated (old) QR → « QR Arena Fit invalide ».
-6. A random QR / URL / invitation link → « QR Arena Fit invalide », nothing opens.
-7. Airplane mode while scanning → « Erreur réseau »; retry online → validated (or already used).
-8. Expired pass → « Pass expiré »; guest without pass → « Aucun Pass disponible ».
+A phone can't reach `localhost`. Use either a Supabase **staging** project
+(`supabase db push` + `supabase/seed.sql`, enable anonymous sign-ins) or the
+local stack on your LAN (`scripts/local-stack/up.sh`, then use
+`http://<your-computer-LAN-IP>:54321` as the URL). Create a station and print it
+(docs/RECEPTION.md). Never put the service-role key in the app or in EAS env.
+
+### Commands
+
+```bash
+cd apps/mobile
+npx eas-cli@latest login                       # once
+npx eas-cli@latest init                        # once: links the EAS project
+
+# Public config for the build (EAS environment "development"; values are not secret)
+npx eas-cli@latest env:create --environment development --name EXPO_PUBLIC_SUPABASE_URL --value https://<staging>.supabase.co
+npx eas-cli@latest env:create --environment development --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value <anon key>
+
+# Android: installable APK with the dev client
+npx eas-cli@latest build --profile development --platform android
+# iOS: register test iPhones once, then build (Apple Developer account needed)
+npx eas-cli@latest device:create
+npx eas-cli@latest build --profile development --platform ios
+
+# Then on your computer, and open the project from the dev client app:
+npx expo start --dev-client
+```
+
+Local alternative (machine with Android SDK / Xcode): `npx expo run:android`,
+`npx expo run:ios --device`.
+
+### Configuration verified in the repo (no device needed)
+
+`npx expo prebuild --no-install --clean` (run in Sprint 6, generated folders
+discarded) produced:
+
+* Android `AndroidManifest.xml`: `android.permission.CAMERA`; **no** `RECORD_AUDIO`.
+* iOS `Info.plist`: `NSCameraUsageDescription` = « Arena Fit utilise la caméra
+  uniquement pour scanner le QR affiché à la réception et valider votre Pass
+  Invité. »; **no** microphone usage string.
+* `expo-camera` plugin with `barcodeScannerEnabled: true` (ML Kit on Android,
+  AVFoundation on iOS).
+
+Not verified here: an actual build (no Android SDK, no Xcode, no Expo/Apple
+credentials in this environment).
+
+### Device test matrix
+
+Print the A5 and A6 assets of a test station. Tick each row on one Android
+phone and one iPhone.
+
+| # | Scenario | Expected | Android | iPhone |
+| --- | --- | --- | --- | --- |
+| 1 | First « Scanner le QR » (permission never asked) | explanation → « Autoriser la caméra » → OS prompt | ☐ | ☐ |
+| 2 | Permission denied | « Caméra désactivée », no new prompt, rest of the app works | ☐ | ☐ |
+| 3 | « Ouvrir les réglages » → allow → back to app | scanner appears without restarting | ☐ | ☐ |
+| 4 | Camera opens | < 1 s, frame visible, close (×) works | ☐ | ☐ |
+| 5 | A5 print at ~30 cm | recognised < 1 s | ☐ | ☐ |
+| 6 | A6 print at ~30 cm | recognised < 1 s | ☐ | ☐ |
+| 7 | A5 print at ~1 m | recognised | ☐ | ☐ |
+| 8 | Normal indoor light | recognised | ☐ | ☐ |
+| 9 | Low light | recognised (torch if needed) | ☐ | ☐ |
+| 10 | Torch toggle | turns on/off; off when leaving the screen | ☐ | ☐ |
+| 11 | Portrait only | layout correct, no rotation glitches | ☐ | ☐ |
+| 12 | Random QR / URL / invitation link | inline « QR non reconnu », scanning continues, nothing opens | ☐ | ☐ |
+| 13 | Airplane mode, valid QR | « Connexion impossible », pass not used | ☐ | ☐ |
+| 14 | Network back → « Réessayer » | PASS VALIDÉ (or « déjà utilisé » if the first call went through) | ☐ | ☐ |
+| 15 | Hold the QR in view after success | one redemption only (check `guest_redemptions`) | ☐ | ☐ |
+| 16 | Scan again with a used pass | « Pass déjà utilisé » + time | ☐ | ☐ |
+| 17 | Expired pass | « Pass expiré » | ☐ | ☐ |
+| 18 | Deactivated station | « QR désactivé » | ☐ | ☐ |
+| 19 | Rotated station, old print | « QR Arena Fit invalide »; new print works | ☐ | ☐ |
+| 20 | Background/foreground during scan and on PASS VALIDÉ | resumes correctly; clock catches up | ☐ | ☐ |
+| 21 | Kill & reopen within 2 min of success | live PASS VALIDÉ (server time) | ☐ | ☐ |
+| 22 | Kill & reopen after 2 min | PASS UTILISÉ + server time, no green state | ☐ | ☐ |
+| 23 | Stay on PASS VALIDÉ for 2 min | switches by itself to PASS UTILISÉ | ☐ | ☐ |
+| 24 | Phone clock set wrong (manual time) | same results as 21–23 | ☐ | ☐ |
+| 25 | Staff readability | « PASS VALIDÉ » readable at arm's length, max brightness | ☐ | ☐ |

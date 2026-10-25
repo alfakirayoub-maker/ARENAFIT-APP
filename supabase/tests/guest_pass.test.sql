@@ -246,7 +246,7 @@ select is(get_my_guest_pass() ->> 'status', 'activated', '…and the pass is sti
 
 insert into t values ('red', redeem_my_guest_pass(pg_temp.v('st') ->> 'qr_payload'));
 select is(pg_temp.v('red') ->> 'result', 'redeemed', 'valid guest + valid station QR → redeemed');
-select is(pg_temp.v('red') ->> 'station_name', 'Réception principale', 'success shows the station');
+select is(pg_temp.v('red') ->> 'reception_station_name', 'Réception principale', 'success shows the station');
 insert into t values ('red2', redeem_my_guest_pass(pg_temp.v('st') ->> 'qr_payload'));
 select is(pg_temp.v('red2') ->> 'result', 'already_used', 'scanning again → already used');
 select is(pg_temp.v('red2') ->> 'redeemed_at', pg_temp.v('red') ->> 'redeemed_at', '…with the original redemption time');

@@ -55,9 +55,13 @@ export type GuestPass = {
   sessions: number;
   validUntil: string;
   activatedAt: string | null;
-  /** Set once the guest scanned the reception QR. */
+  /** Set once the guest scanned the reception QR (server time). */
   redeemedAt: string | null;
   stationName: string | null;
+  /** End of the live « PASS VALIDÉ » window (server time), once redeemed. */
+  confirmationUntil: string | null;
+  /** serverTime − deviceTime measured with this response (see checkin.ts). */
+  clockOffsetMs: number;
 };
 
 export type ActivationResult =
@@ -115,7 +119,20 @@ export interface GuestPassRepository {
 
 /** Outcome of scanning the reception QR. */
 export type RedemptionResult =
-  | { result: 'redeemed'; redeemedAt: string; stationName: string; sessions: number }
-  | { result: 'already_used'; redeemedAt: string | null; stationName: string | null }
+  | {
+      result: 'redeemed';
+      redeemedAt: string;
+      stationName: string;
+      sessions: number;
+      confirmationUntil: string;
+      clockOffsetMs: number;
+    }
+  | {
+      result: 'already_used';
+      redeemedAt: string | null;
+      stationName: string | null;
+      confirmationUntil: string | null;
+      clockOffsetMs: number;
+    }
   | { result: 'expired'; validUntil: string | null }
   | { result: 'no_pass' | 'invalid_qr' | 'station_inactive' | 'not_guest' };

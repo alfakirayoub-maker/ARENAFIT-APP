@@ -15,8 +15,9 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STATE="$ROOT/.local-stack"
 mkdir -p "$STATE"
 [[ -f "$STATE/jwt-secret" ]] || openssl rand -hex 32 > "$STATE/jwt-secret"
-node "$ROOT/scripts/local-stack/mint-jwt.mjs" "$STATE" anon > "$STATE/anon-key"
-node "$ROOT/scripts/local-stack/mint-jwt.mjs" "$STATE" service_role > "$STATE/service-key"
+# Keys are minted once and kept, so .env.local stays valid across restarts.
+[[ -s "$STATE/anon-key" ]] || node "$ROOT/scripts/local-stack/mint-jwt.mjs" "$STATE" anon > "$STATE/anon-key"
+[[ -s "$STATE/service-key" ]] || node "$ROOT/scripts/local-stack/mint-jwt.mjs" "$STATE" service_role > "$STATE/service-key"
 [[ -f "$STATE/member-password" ]] || openssl rand -hex 12 > "$STATE/member-password"
 SECRET="$(cat "$STATE/jwt-secret")"
 P=(sudo -u postgres psql -X -q -v ON_ERROR_STOP=1)
@@ -85,7 +86,7 @@ read -r MAIN_QR _ <<<"$(station 'Réception principale')"
 read -r OFF_QR OFF_ID <<<"$(station 'Réception test (désactivée)')"
 "${P[@]}" -d arenafit_dev -c "select public.set_reception_station_active('$OFF_ID', false)" >/dev/null
 echo "$MAIN_QR" > "$STATE/reception-qr"; echo "$OFF_QR" > "$STATE/reception-qr-inactive"
-node "$ROOT/scripts/reception/station-qr.mjs" "$MAIN_QR" "$STATE/reception-principale.svg" >/dev/null
+node "$ROOT/scripts/reception/station-qr.mjs" "$MAIN_QR" --name "Réception principale" --out "$STATE/print" >/dev/null
 
 cat <<INFO
 
@@ -97,7 +98,7 @@ cat <<INFO
     EXPO_PUBLIC_DEV_MEMBER_PASSWORD=$PW
     EXPO_PUBLIC_DEV_RECEPTION_QR=$MAIN_QR
     EXPO_PUBLIC_DEV_RECEPTION_QR_INACTIVE=$OFF_QR
-  printable reception QR (local): .local-stack/reception-principale.svg
+  printable reception QR (local): .local-stack/print/reception-principale-a5.svg / -a6.svg
   integration tests (apps/mobile):
     SUPABASE_TEST_URL=http://localhost:54321 SUPABASE_TEST_ANON_KEY=\$(cat .local-stack/anon-key) \\
     SUPABASE_TEST_SERVICE_KEY=\$(cat .local-stack/service-key) npm test

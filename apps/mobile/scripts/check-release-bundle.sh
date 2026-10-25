@@ -14,11 +14,17 @@ CI=1 npx expo export --platform android --platform ios --output-dir "$OUT" >/dev
 FORBIDDEN=(
   "challenge-novembre" "Yassine" "Arena Premium" "buildFixtureSessions" "Renforcement musculaire"   # dev fixtures
   "createDevAuthProvider" "arenafit:dev-demo-member" "EXPO_PUBLIC_DEV_MEMBER" "arenafit.local"      # dev/test member
-  "AF-NOT-A-RECEPTION-QR" "example.com/promo"                                                       # dev scan simulator
+  "AF-NOT-A-RECEPTION-QR" "example.com/promo" "EXPO_PUBLIC_DEV_RECEPTION_QR"                         # dev scan simulator
   "service_role" "key_test_"                                                                        # server key, Branch test key
   "q3Jx8Yb2mN0pQrStUvWxYz"                                                                          # raw test token (tests/)
 )
-# Actual secret values when present on this machine (never committed).
+# Actual secret values when present on this machine (never committed): dev
+# credentials, local station QR payloads (raw station tokens), test service key.
+if [[ -d ../../.local-stack ]]; then
+  for f in ../../.local-stack/reception-qr ../../.local-stack/reception-qr-inactive ../../.local-stack/member-password ../../.local-stack/service-key; do
+    [[ -s "$f" ]] && FORBIDDEN+=("$(cat "$f")") && [[ "$f" == *reception-qr* ]] && FORBIDDEN+=("$(cut -c6- "$f")")
+  done
+fi
 for v in "${EXPO_PUBLIC_DEV_MEMBER_PASSWORD:-}" "${SUPABASE_TEST_SERVICE_KEY:-}"; do [[ -n "$v" ]] && FORBIDDEN+=("$v"); done
 if [[ -f .env.local ]]; then
   for var in EXPO_PUBLIC_DEV_MEMBER_PASSWORD EXPO_PUBLIC_DEV_RECEPTION_QR EXPO_PUBLIC_DEV_RECEPTION_QR_INACTIVE; do

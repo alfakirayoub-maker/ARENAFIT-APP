@@ -229,7 +229,7 @@ describe('Reception check-in: guest scans the station QR (integration)', { skip 
     assert.equal(error, null);
     const st = data as { station_id: string; qr_payload: string };
     if (!active) assert.equal((await svc.rpc('set_reception_station_active', { p_station_id: st.station_id, p_active: false })).error, null);
-    return st;
+    return { ...st, name };
   }
 
   /** A guest holding an activated pass. */
@@ -312,4 +312,71 @@ describe('Reception check-in: guest scans the station QR (integration)', { skip 
     assert.equal((await g.repo.redeemMyGuestPass(st.qr_payload)).result, 'invalid_qr', 'old QR rejected after rotation');
     assert.equal((await g.repo.redeemMyGuestPass(rotated.qr_payload)).result, 'redeemed', 'new QR works after rotation');
   });
+
+  it('server time: 120 s confirmation window, server clock offset, safe history only', async () => {
+    const st = await station(`Réception ${randomUUID().slice(0, 6)}`);
+    const g = await guestWithPass();
+    const r = await g.repo.redeemMyGuestPass(st.qr_payload);
+    assert.ok(r.result === 'redeemed');
+    assert.equal(Date.parse(r.confirmationUntil) - Date.parse(r.redeemedAt), 120_000);
+    assert.ok(Math.abs(r.clockOffsetMs) < 5_000, 'local server and test runner share a clock');
+
+    const pass = await g.repo.getMyGuestPass();
+    assert.equal(pass?.status, 'used');
+    assert.equal(pass?.redeemedAt, r.redeemedAt);
+    assert.equal(pass?.stationName, st.name);
+    assert.equal(pass?.confirmationUntil, r.confirmationUntil);
+
+    const { data } = await g.client.rpc('get_my_guest_pass');
+    assert.deepEqual(Object.keys(data as object).sort(), [
+      'activated_at', 'confirmation_until', 'inviter_name', 'reception_station_name', 'redeemed_at', 'server_now',
+      'sessions', 'status', 'valid_until',
+    ]);
+    assert.ok(!JSON.stringify(data).includes(st.qr_payload.slice(5)), 'no station token');
+  });
+
+  it('a retry after a lost response never redeems twice', async () => {
+    const st = await station(`Réception ${randomUUID().slice(0, 6)}`);
+    const g = await guestWithPass();
+    // First request reaches the server but the app never sees the answer…
+    await g.client.rpc('redeem_my_guest_pass', { p_reception_qr: st.qr_payload });
+    // …so the guest taps « Réessayer » with the same payload.
+    const retry = await g.repo.redeemMyGuestPass(st.qr_payload);
+    assert.equal(retry.result, 'already_used');
+    assert.ok(retry.result === 'already_used' && retry.confirmationUntil, 'the retry still knows the confirmation window');
+    const { count } = await admin().from('guest_redemptions').select('id', { count: 'exact', head: true }).eq('guest_profile_id', g.user.id);
+    assert.equal(count, 1);
+  });
+
+  it('rotation keeps the station identity and history; deactivate / reactivate', async () => {
+    const svc = admin();
+    const st = await station(`Réception ${randomUUID().slice(0, 6)}`);
+    const before = await guestWithPass();
+    const waiting = await guestWithPass(); // pass activated before the rotation
+    assert.equal((await before.repo.redeemMyGuestPass(st.qr_payload)).result, 'redeemed');
+
+    const rotated = (await svc.rpc('rotate_reception_station_token', { p_station_id: st.station_id })).data as {
+      station_id: string;
+      qr_payload: string;
+    };
+    assert.equal(rotated.station_id, st.station_id, 'same station after rotation');
+    assert.equal((await waiting.repo.redeemMyGuestPass(st.qr_payload)).result, 'invalid_qr', 'old QR stops working');
+    assert.equal((await waiting.repo.getMyGuestPass())?.status, 'activated', 'existing passes unaffected');
+
+    assert.equal((await svc.rpc('deactivate_reception_station', { p_station_id: st.station_id })).error, null);
+    assert.equal((await waiting.repo.redeemMyGuestPass(rotated.qr_payload)).result, 'station_inactive');
+    assert.equal((await svc.rpc('reactivate_reception_station', { p_station_id: st.station_id })).error, null);
+    assert.equal((await waiting.repo.redeemMyGuestPass(rotated.qr_payload)).result, 'redeemed', 'new QR works');
+
+    const { data: rows } = await svc.from('guest_redemptions').select('reception_station_id').in('guest_profile_id', [before.user.id, waiting.user.id]);
+    assert.deepEqual(rows!.map((r) => r.reception_station_id), [st.station_id, st.station_id], 'history on one station');
+    const { data: outcomes } = await svc
+      .from('guest_pass_events')
+      .select('outcome')
+      .eq('reception_station_id', st.station_id)
+      .eq('event', 'reception_qr_scanned');
+    assert.deepEqual(outcomes!.map((o) => o.outcome).sort(), ['inactive_station', 'success', 'success']);
+    assert.ok((await waiting.client.rpc('deactivate_reception_station', { p_station_id: st.station_id })).error, 'apps cannot deactivate');
+  });
 });
+

@@ -37,6 +37,15 @@ export function ScanSimulator({ onScan, disabled }: { onScan: (data: string) => 
 }
 
 const styles = StyleSheet.create({
-  root: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.xl, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border },
-  buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  root: {
+    flex: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    backgroundColor: 'rgba(10, 10, 11, 0.92)',
+  },
+  buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
 });

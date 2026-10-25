@@ -200,7 +200,7 @@ redemption) — see §9. There is no reception-side scanner.
 | 3 ✅ | Supabase repositories for coaches, activities, planning and news (no login), controlled club clock, image storage, pgTAP RLS/seed/clock tests, cache strategy, release-bundle check | App runs against Supabase as a visitor, RLS verified in SQL and over HTTP |
 | 4 ✅ | Native local reminders (15/30/60/120 min) via a platform-independent ReminderService, contextual permission UX, reconciliation with the live planning, notification tap routing, Android channel + monochrome icon, notification preferences, push interface (not wired), EAS dev-build profiles | Logic covered by tests; device behaviour per docs/DEV_BUILD.md checklist |
 | 5 ✅ | Guest-pass server operations, offer/share flow, InvitationLinkService (Branch + local), short-code fallback, invitation states, cancellation/expiry, Guest Mode, guest check-in by scanning the reception QR | End-to-end on web against local Supabase; Branch/device checks listed in docs/BRANCH.md |
-| 6 | Guest reception check-in hardening, native scanner quality, reception station management backend, real-device validation | Checklist in docs/DEV_BUILD.md passes on iPhone + Android |
+| 6 ✅ | Check-in hardening: server-timed confirmation window, scanner state machine (no duplicate requests, inline invalid / network states), camera permission states, torch, print assets (A5/A6), station deactivate/reactivate/rotate, scan outcome analytics | Automated + web review done; device matrix in docs/DEV_BUILD.md pending real phones |
 | 7 | Admin CRUD: planning (duplicate session/week), coaches (photo upload), activities, news (publish/unpublish), notifications, members, guest passes, settings | Admin changes show up in the app |
 | 8 | Tests (RLS/pgTAP, RPC, component), error boundaries, performance, a11y pass, security review, EAS builds | Release candidates for Android and iOS |
 
@@ -469,3 +469,30 @@ src/app/+native-intent.tsx  every incoming URL → validated app path
 * `supabase/tests/guest_pass.test.sql` (pgTAP, 96 checks incl. check-in and rotation) and
   `apps/mobile/tests/guest-pass.integration.test.mts` (real API: concurrency, idempotency,
   RLS), `apps/mobile/tests/guest-pass-links.test.mts` (payload/URL validation).
+
+## 10. Check-in hardening (Sprint 6)
+
+* **Confirmation window** — `guest_pass.checkin_confirmation_seconds` (120). Redemption,
+  « already used » and `get_my_guest_pass` return `redeemed_at`, `confirmation_until` and
+  `server_now`. The app measures `serverNow − deviceNow` at the request mid-point
+  (`src/features/guest-pass/checkin.ts`) and ticks with the device clock + offset; the
+  device clock alone never decides. Inside the window `/guest/pass` shows the live
+  « PASS VALIDÉ » (server-aligned clock with seconds, « Validé maintenant », pulse); it
+  switches by itself to « PASS UTILISÉ / Validé aujourd’hui à … / station », also on reopen.
+  The live state is never rebuilt from local state — only from the server's pass data.
+* **Scanner** — `ScanController` (`scan-controller.ts`) is a synchronous state machine:
+  one recognised QR → one request; frames ignored while validating; unrecognised codes
+  → inline « QR non reconnu » and scanning continues; network failure → « Connexion
+  impossible » + « Réessayer » with the same payload held in memory only (never logged or
+  stored); a retry can't double-redeem (server returns « already used »). Full-screen
+  camera, frame, close, torch, permission states (`cameraAccess`: never re-asks after
+  denial, « Ouvrir les réglages », re-checked on foreground).
+* **Analytics** — every server-side scan records `reception_qr_scanned` with an
+  `outcome` (`success, invalid_format, invalid_station, inactive_station, no_pass,
+  expired, already_used`) and the station when known; never the payload.
+  `network_error` is client-side only (the request never arrived).
+* **Stations** — `create_reception_station`, `deactivate_reception_station`,
+  `reactivate_reception_station`, `rotate_reception_station_token` (service role).
+  Rotation keeps the station row: history and analytics stay attached. Procedure and
+  print assets: `docs/RECEPTION.md`, `scripts/reception/station-qr.mjs` (A5 + A6, PDF,
+  decode check).

@@ -1,17 +1,22 @@
 import { Redirect, router } from 'expo-router';
-import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { DetailScreen } from '@/components/ui/DetailScreen';
+import { Button } from '@/components/ui/Button';
+import { Icon } from '@/components/ui/Icon';
+import { IconButton } from '@/components/ui/IconButton';
 import { Text } from '@/components/ui/Text';
-import { RedemptionFailure, RedemptionSuccess, type ScanOutcome } from '@/features/guest-pass/components/RedemptionResultView';
-import { useMyGuestPass, useRedeemGuestPass } from '@/features/guest-pass/hooks';
-import { parseReceptionQr } from '@/features/guest-pass/links';
+import { RedemptionFailure } from '@/features/guest-pass/components/RedemptionResultView';
+import { redeemAndUpdatePass, useMyGuestPass } from '@/features/guest-pass/hooks';
+import { ScanController, type ScanPhase } from '@/features/guest-pass/scan-controller';
 import { ReceptionScanner } from '@/features/guest-pass/scanner/ReceptionScanner';
+import type { RedemptionResult } from '@/features/guest-pass/types';
 import { useSession } from '@/features/session/session';
 import { haptics } from '@/lib/haptics';
-import { colors, spacing } from '@/theme';
+import { colors, radius, screenGutter, spacing } from '@/theme';
 
 type ScanSimulatorType = typeof import('@/dev/ScanSimulator').ScanSimulator;
 /** Development only: injected scans for web review / tests (excluded from release bundles). */
@@ -21,102 +26,137 @@ const ScanSimulator: ScanSimulatorType | null =
       (require('@/dev/ScanSimulator') as typeof import('@/dev/ScanSimulator')).ScanSimulator
     : null;
 
-type State =
-  | { kind: 'scanning' }
-  | { kind: 'checking' }
-  | { kind: 'success'; redeemedAt: string; stationName: string | null }
-  | { kind: 'failure'; outcome: ScanOutcome };
-
 /**
  * « Scanner le QR »: the guest scans the reception QR; the server redeems the
- * pass of the signed-in guest. Guest Mode with an activated pass only.
+ * pass of the signed-in guest. Guest Mode with an activated pass only. One
+ * recognised QR → one request (ScanController); the result comes from the server.
  */
 export default function ScanReceptionScreen() {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const { session, restored } = useSession();
   const passQuery = useMyGuestPass();
-  const redeem = useRedeemGuestPass();
-  const [state, setState] = useState<State>({ kind: 'scanning' });
+  const queryClient = useQueryClient();
+  const [torch, setTorch] = useState(false);
+  const [phase, setPhase] = useState<ScanPhase>({ kind: 'scanning', notice: null });
+
+  const [controller] = useState(
+    () => new ScanController({ redeem: (qr) => redeemAndUpdatePass(queryClient, qr), onChange: setPhase }),
+  );
+  useEffect(() => () => controller.dispose(), [controller]);
+
+  const result: RedemptionResult | null = phase.kind === 'done' ? phase.result : null;
+  useEffect(() => {
+    if (result?.result === 'redeemed') {
+      haptics.success();
+      // The pass cache holds the server's redemption; back on /guest/pass (no second copy
+      // in the stack) the live confirmation shows.
+      router.dismissTo('/guest/pass');
+    }
+  }, [result]);
 
   if (restored && session.kind !== 'guest') return <Redirect href="/" />;
-  // Only an activated pass can be redeemed (a result screen stays visible after redemption).
-  if (state.kind === 'scanning' && passQuery.data !== undefined && passQuery.data?.status !== 'activated') {
+  if (phase.kind === 'scanning' && passQuery.data !== undefined && passQuery.data?.status !== 'activated') {
     return <Redirect href="/guest/pass" />;
   }
 
-  const onScan = (data: string) => {
-    if (state.kind !== 'scanning') return;
-    const qr = parseReceptionQr(data);
-    if (!qr) {
-      // Not an Arena Fit reception QR (URL, invitation link, random code): rejected
-      // locally, never opened, nothing sent.
-      setState({ kind: 'failure', outcome: { result: 'invalid_qr' } });
-      return;
-    }
-    setState({ kind: 'checking' });
-    redeem.mutate(qr, {
-      onSuccess: (r) => {
-        if (r.result === 'redeemed') {
-          haptics.success();
-          setState({ kind: 'success', redeemedAt: r.redeemedAt, stationName: r.stationName });
-        } else {
-          setState({ kind: 'failure', outcome: r });
-        }
-      },
-      onError: () => setState({ kind: 'failure', outcome: { result: 'network' } }),
-    });
-  };
+  const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
 
-  if (state.kind === 'success') {
-    return <RedemptionSuccess redeemedAt={state.redeemedAt} stationName={state.stationName} onDone={() => router.replace('/')} />;
+  if (result && result.result !== 'redeemed') {
+    return (
+      <View style={[styles.resultRoot, { paddingTop: insets.top + spacing.xl }]}>
+        <RedemptionFailure outcome={result} onRetry={() => controller.rescan()} onBack={close} />
+      </View>
+    );
   }
 
   return (
-    <DetailScreen>
-      {state.kind === 'failure' ? (
-        <RedemptionFailure
-          outcome={state.outcome}
-          onRetry={() => setState({ kind: 'scanning' })}
-          onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-        />
-      ) : (
-        <>
-          <View style={styles.header}>
-            <Text variant="display" accessibilityRole="header">
-              {t('guestPass.scan.title')}
-            </Text>
-            <Text variant="body" color="secondary">
-              {t('guestPass.scan.hint')}
-            </Text>
+    <View style={styles.root}>
+      <ReceptionScanner active={phase.kind === 'scanning'} onScan={(d) => controller.onScan(d)} torch={torch} />
+
+      <View style={[styles.top, { paddingTop: insets.top + spacing.sm }]} pointerEvents="box-none">
+        <View style={styles.topBar} pointerEvents="box-none">
+          <IconButton icon="close" accessibilityLabel={t('guestPass.scan.close')} onPress={close} />
+          {Platform.OS !== 'web' && (
+            <IconButton
+              icon={torch ? 'flashlight' : 'flashlight-outline'}
+              accessibilityLabel={torch ? t('guestPass.scan.torchOff') : t('guestPass.scan.torchOn')}
+              active={torch}
+              onPress={() => setTorch((v) => !v)}
+            />
+          )}
+        </View>
+        <Text variant="title" style={styles.center}>
+          {t('guestPass.scan.title')}
+        </Text>
+        <Text variant="body" color="secondary" style={styles.center}>
+          {t('guestPass.scan.hint')}
+        </Text>
+      </View>
+
+      <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]} pointerEvents="box-none">
+        {phase.kind === 'scanning' && phase.notice === 'unrecognized' && (
+          <View style={styles.notice} accessibilityLiveRegion="polite">
+            <Icon name="alert-circle-outline" size={22} color={colors.warning} />
+            <View style={styles.flex}>
+              <Text variant="bodyStrong">{t('guestPass.scan.unrecognizedTitle')}</Text>
+              <Text variant="caption" color="secondary">
+                {t('guestPass.scan.unrecognizedBody')}
+              </Text>
+            </View>
           </View>
-          <View>
-            <ReceptionScanner active={state.kind === 'scanning'} onScan={onScan} />
-            {state.kind === 'checking' && (
-              <View style={styles.checking} accessibilityLiveRegion="polite">
-                <ActivityIndicator color={colors.primary} size="large" />
-                <Text variant="bodyStrong">{t('guestPass.scan.checking')}</Text>
+        )}
+
+        {phase.kind === 'validating' && (
+          <View style={styles.notice} accessibilityLiveRegion="polite">
+            <ActivityIndicator color={colors.primary} />
+            <Text variant="bodyStrong">{t('guestPass.scan.checking')}</Text>
+          </View>
+        )}
+
+        {phase.kind === 'network_error' && (
+          <View style={styles.panel} accessibilityLiveRegion="assertive">
+            <View style={styles.panelHead}>
+              <Icon name="cloud-offline-outline" size={24} color={colors.textSecondary} />
+              <View style={styles.flex}>
+                <Text variant="bodyStrong">{t('guestPass.scan.networkTitle')}</Text>
+                <Text variant="caption" color="secondary">
+                  {t('guestPass.scan.networkBody')}
+                </Text>
               </View>
-            )}
+            </View>
+            <Button label={t('guestPass.scan.retry')} icon="refresh" fullWidth onPress={() => controller.retry()} />
+            <Button label={t('guestPass.scan.cancel')} variant="ghost" fullWidth onPress={() => controller.rescan()} />
           </View>
-          {ScanSimulator && <ScanSimulator onScan={onScan} disabled={state.kind !== 'scanning'} />}
-        </>
-      )}
-    </DetailScreen>
+        )}
+
+        {ScanSimulator && phase.kind !== 'network_error' && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sim}>
+            <ScanSimulator onScan={(d) => controller.onScan(d)} disabled={phase.kind !== 'scanning'} />
+          </ScrollView>
+        )}
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: { gap: spacing.sm },
-  checking: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(10, 10, 11, 0.8)',
+  root: { flex: 1, backgroundColor: '#000000' },
+  resultRoot: { flex: 1, backgroundColor: colors.background, paddingHorizontal: screenGutter },
+  top: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: screenGutter, gap: spacing.xs },
+  topBar: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
+  center: { textAlign: 'center' },
+  bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: screenGutter, gap: spacing.md },
+  notice: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: spacing.md,
-    borderRadius: 24,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    backgroundColor: 'rgba(21, 21, 23, 0.94)',
   },
+  panel: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: 'rgba(21, 21, 23, 0.97)' },
+  panelHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.xs },
+  flex: { flex: 1, gap: spacing.xxs },
+  sim: { flexGrow: 1 },
 });
