@@ -15,7 +15,7 @@ import { ListGroup, ListRow } from '@/components/ui/ListRow';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
 import { useActivity, useClassSession } from '@/data/queries';
-import { hasStarted, relativeDayLabel } from '@/features/planning/session-utils';
+import { hasEnded, hasStarted, relativeDayLabel } from '@/features/planning/session-utils';
 import { useReminderOffsetLabel, useReminderSheet } from '@/features/reminders/ReminderSheet';
 import { useReminders } from '@/features/reminders/store';
 import { durationMinutes } from '@/lib/club-time';
@@ -33,19 +33,19 @@ export default function ClassDetailScreen() {
   const reminderSheet = useReminderSheet();
   const offsetLabel = useReminderOffsetLabel();
 
-  if (sessionQuery.isPending) {
+  if (sessionQuery.data === undefined && sessionQuery.isError) {
+    return (
+      <DetailScreen>
+        <ErrorState onRetry={() => sessionQuery.refetch()} />
+      </DetailScreen>
+    );
+  }
+  if (sessionQuery.data === undefined) {
     return (
       <DetailScreen hero={<Skeleton height="100%" borderRadius={0} />}>
         <Skeleton width="50%" height={36} />
         <Skeleton height={140} borderRadius={radius.lg} />
         <Skeleton height={80} borderRadius={radius.lg} />
-      </DetailScreen>
-    );
-  }
-  if (sessionQuery.isError) {
-    return (
-      <DetailScreen>
-        <ErrorState onRetry={() => sessionQuery.refetch()} />
       </DetailScreen>
     );
   }
@@ -93,7 +93,9 @@ export default function ClassDetailScreen() {
         <View style={styles.badges}>
           <Badge label={t(`categories.${session.activity.category}`)} tone="accent" />
           {session.isCancelled && <Badge label={t('classDetail.cancelled')} tone="error" />}
-          {started && !session.isCancelled && <Badge label={t('planning.finished')} />}
+          {started && !session.isCancelled && (
+            <Badge label={hasEnded(session) ? t('planning.finished') : t('planning.inProgress')} />
+          )}
         </View>
         <Text variant="display" accessibilityRole="header">
           {session.activity.name}

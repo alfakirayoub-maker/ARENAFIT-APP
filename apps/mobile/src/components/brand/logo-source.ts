@@ -4,7 +4,7 @@ import type { ImageSource } from 'expo-image';
  * Wire the official Arena Fit logo here once the file is in assets/brand/.
  *
  *   export const brandLogo: BrandLogo = {
- *     source: require('@/assets/brand/arenafit-logo.png'),
+ *     source: require('@/assets/brand/arena-fit-logo.png'),
  *     aspectRatio: <file width / file height>,
  *   };
  *

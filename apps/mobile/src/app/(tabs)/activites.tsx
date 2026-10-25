@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { CoachCard } from '@/components/cards/CoachCard';
 import { MediaCard } from '@/components/cards/MediaCard';
@@ -14,9 +14,9 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { MediaCardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
-import { useActivities, useCoaches, useSessions } from '@/data/queries';
-import { addDays, clubNow, startOfWeek } from '@/lib/club-time';
-import { radius, screenGutter, spacing } from '@/theme';
+import { queryKeys, useActivities, useCoaches, useRefresh, useWeekSessions } from '@/data/queries';
+import { clubNow, startOfWeek } from '@/lib/club-time';
+import { colors, radius, screenGutter, spacing } from '@/theme';
 import { activityCategories, type Activity, type ActivityCategory } from '@/types/domain';
 import { categoryIcons } from '@/components/brand/Artwork';
 
@@ -31,7 +31,8 @@ export default function ActivitiesScreen() {
   const activitiesQuery = useActivities();
   const coachesQuery = useCoaches();
   const monday = startOfWeek(clubNow().date);
-  const weekQuery = useSessions(monday, addDays(monday, 6));
+  const weekQuery = useWeekSessions(monday);
+  const refresh = useRefresh(queryKeys.activities, queryKeys.coaches, queryKeys.sessions);
 
   const activities = activitiesQuery.data ?? [];
   const sessionCounts = new Map<string, number>();
@@ -56,7 +57,7 @@ export default function ActivitiesScreen() {
     ...activityCategories.map((c) => ({ value: c, label: t(`categories.${c}`) })),
   ];
 
-  if (activitiesQuery.isError) {
+  if (activitiesQuery.data === undefined && activitiesQuery.isError) {
     return (
       <Screen>
         <ScreenHeader title={t('activities.title')} subtitle={t('activities.subtitle')} />
@@ -66,13 +67,16 @@ export default function ActivitiesScreen() {
   }
 
   return (
-    <Screen>
+    <Screen
+      refreshControl={
+        <RefreshControl refreshing={refresh.refreshing} onRefresh={refresh.onRefresh} tintColor={colors.primary} />
+      }>
       <ScreenHeader title={t('activities.title')} subtitle={t('activities.subtitle')} />
 
       <SectionHeader title={t('activities.categories')} />
       <ChipRow options={categoryOptions} value={category} onChange={setCategory} />
 
-      {activitiesQuery.isPending ? (
+      {activitiesQuery.data === undefined ? (
         <View style={styles.sectionTop}>
           <MediaCardSkeleton height={280} />
         </View>
@@ -159,7 +163,7 @@ export default function ActivitiesScreen() {
 
           <View style={styles.section}>
             <SectionHeader title={t('activities.coaches')} />
-            {coachesQuery.isPending ? (
+            {coachesQuery.data === undefined ? (
               <View style={styles.coachSkeletons}>
                 {[0, 1, 2, 3].map((i) => (
                   <Skeleton key={i} width={72} height={72} borderRadius={radius.pill} />

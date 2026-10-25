@@ -19,20 +19,20 @@ export default function ArticleScreen() {
   const articleQuery = useArticle(slug);
   const article = articleQuery.data;
 
-  if (articleQuery.isPending) {
+  if (articleQuery.data === undefined && articleQuery.isError) {
+    return (
+      <DetailScreen>
+        <ErrorState onRetry={() => articleQuery.refetch()} />
+      </DetailScreen>
+    );
+  }
+  if (articleQuery.data === undefined) {
     return (
       <DetailScreen hero={<Skeleton height="100%" borderRadius={0} />}>
         <Skeleton width="80%" height={32} />
         <Skeleton height={14} />
         <Skeleton height={14} />
         <Skeleton width="60%" height={14} />
-      </DetailScreen>
-    );
-  }
-  if (articleQuery.isError) {
-    return (
-      <DetailScreen>
-        <ErrorState onRetry={() => articleQuery.refetch()} />
       </DetailScreen>
     );
   }

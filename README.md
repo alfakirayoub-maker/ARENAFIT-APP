@@ -15,6 +15,8 @@ docs/           architecture & plan (start with docs/ARCHITECTURE.md)
 npm install                 # installs all workspaces
 npm run mobile              # expo start (scan with a dev build / Expo Go)
 npm run typecheck
+npm test                    # unit tests (+ Supabase integration when SUPABASE_TEST_* is set)
+npm run db:test             # clean DB: migrations, seed, pgTAP RLS/clock/seed tests
 ```
 
 Add dependencies to the mobile app with `npx expo install <pkg>` from
@@ -28,9 +30,12 @@ In development, Profil → **Développement** switches between visitor / guest /
 supabase init              # first time only: creates supabase/config.toml
 supabase start
 supabase db reset           # applies supabase/migrations + supabase/seed.sql (production facts only)
-psql "$DATABASE_URL" -f supabase/fixtures/dev.sql   # optional: mock rooms + schedule, local only
+psql "$DATABASE_URL" -f supabase/fixtures/dev.sql   # optional: mock rooms, schedule, details, news (local only)
+supabase test db            # pgTAP tests in supabase/tests
 ```
 
-The mobile app currently reads development fixtures (`apps/mobile/src/dev/fixtures/`).
-Those are mock data, not Arena Fit facts. Copy `apps/mobile/.env.example` to
-`.env.local` for runtime configuration.
+With `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` set (copy
+`apps/mobile/.env.example` to `apps/mobile/.env.local`), the app reads Supabase.
+Without them, development builds fall back to `apps/mobile/src/dev/fixtures/`
+(mock data, not Arena Fit facts). Release builds never include fixtures.
+Only the anon key ever goes in the app, never the service-role key.

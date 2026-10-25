@@ -18,11 +18,10 @@ import { Screen } from '@/components/ui/Screen';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { ClassCardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
-import { useActivities, useSessions } from '@/data/queries';
+import { queryKeys, useActivities, useRefresh, useTodaySessions, useUpcomingSessions } from '@/data/queries';
 import { useFavoriteActivities } from '@/features/favorites/store';
-import { upcomingSessions } from '@/features/planning/session-utils';
+import { hasStarted } from '@/features/planning/session-utils';
 import { useSession } from '@/features/session/session';
-import { addDays, clubNow } from '@/lib/club-time';
 import { colors, radius, screenGutter, spacing } from '@/theme';
 
 const TODAY_LIMIT = 3;
@@ -30,27 +29,23 @@ const TODAY_LIMIT = 3;
 export default function HomeScreen() {
   const { t } = useTranslation();
   const { session } = useSession();
-  const now = clubNow();
-  const sessionsQuery = useSessions(now.date, addDays(now.date, 7));
+  const upcomingQuery = useUpcomingSessions({ limit: 4 });
+  const todayQuery = useTodaySessions();
   const activitiesQuery = useActivities();
   const favorites = useFavoriteActivities();
+  const refresh = useRefresh(queryKeys.sessions, queryKeys.activities);
 
-  const upcoming = upcomingSessions(sessionsQuery.data ?? [], now);
-  const nextClass = upcoming[0];
+  const nextClass = upcomingQuery.data?.[0];
   // The hero already shows the next class; the day list shows what follows it.
-  const laterToday = upcoming.filter((s) => s.date === now.date && s.id !== nextClass?.id);
-  const favoriteActivities = (activitiesQuery.data ?? []).filter((a) => favorites.isFavorite(a.id));
+  const laterToday = (todayQuery.data ?? []).filter((s) => !s.isCancelled && !hasStarted(s) && s.id !== nextClass?.id);
+  const favoriteActivities = (activitiesQuery.data ?? []).filter((a) => favorites.isFavorite(a.slug));
 
   const firstName = session.kind === 'member' ? session.member.firstName : session.kind === 'guest' ? session.firstName : null;
 
   return (
     <Screen
       refreshControl={
-        <RefreshControl
-          refreshing={sessionsQuery.isRefetching}
-          onRefresh={() => void sessionsQuery.refetch()}
-          tintColor={colors.primary}
-        />
+        <RefreshControl refreshing={refresh.refreshing} onRefresh={refresh.onRefresh} tintColor={colors.primary} />
       }>
       {/* Header */}
       <View style={styles.header}>
@@ -77,10 +72,12 @@ export default function HomeScreen() {
 
       {/* 1. Next class — the most useful thing on the screen */}
       <Section title={t('home.nextClass')}>
-        {sessionsQuery.isPending ? (
-          <Skeleton height={330} borderRadius={radius.xl} />
-        ) : sessionsQuery.isError ? (
-          <ErrorState compact onRetry={() => sessionsQuery.refetch()} />
+        {upcomingQuery.data === undefined ? (
+          upcomingQuery.isError ? (
+            <ErrorState compact onRetry={() => upcomingQuery.refetch()} />
+          ) : (
+            <Skeleton height={330} borderRadius={radius.xl} />
+          )
         ) : nextClass ? (
           <FadeIn>
             <NextClassCard session={nextClass} />
@@ -95,12 +92,16 @@ export default function HomeScreen() {
         title={t('home.todaySchedule')}
         actionLabel={t('common.seeAll')}
         onAction={() => router.push('/planning')}>
-        {sessionsQuery.isPending ? (
-          <View style={styles.list}>
-            <ClassCardSkeleton />
-            <ClassCardSkeleton />
-          </View>
-        ) : sessionsQuery.isError ? null : laterToday.length > 0 ? (
+        {todayQuery.data === undefined ? (
+          todayQuery.isError ? (
+            <ErrorState compact onRetry={() => todayQuery.refetch()} />
+          ) : (
+            <View style={styles.list}>
+              <ClassCardSkeleton />
+              <ClassCardSkeleton />
+            </View>
+          )
+        ) : laterToday.length > 0 ? (
           <View style={styles.list}>
             {laterToday.slice(0, TODAY_LIMIT).map((s, i) => (
               <FadeIn key={s.id} index={i}>
@@ -132,11 +133,15 @@ export default function HomeScreen() {
         title={t('home.favoriteActivities')}
         actionLabel={favoriteActivities.length > 0 ? t('home.manage') : undefined}
         onAction={() => router.push('/activites')}>
-        {activitiesQuery.isPending ? (
-          <View style={styles.rail}>
-            <Skeleton width={140} height={150} borderRadius={radius.xl} />
-            <Skeleton width={140} height={150} borderRadius={radius.xl} />
-          </View>
+        {activitiesQuery.data === undefined ? (
+          activitiesQuery.isError ? (
+            <ErrorState compact onRetry={() => activitiesQuery.refetch()} />
+          ) : (
+            <View style={styles.rail}>
+              <Skeleton width={140} height={150} borderRadius={radius.xl} />
+              <Skeleton width={140} height={150} borderRadius={radius.xl} />
+            </View>
+          )
         ) : favoriteActivities.length > 0 ? (
           <ScrollView
             horizontal

@@ -16,8 +16,10 @@ export const env = {
   inviteBaseUrl: optional(process.env.EXPO_PUBLIC_INVITE_BASE_URL),
   /** Branch public key (deferred deep linking for guest invitations, Sprint 5). */
   branchKey: optional(process.env.EXPO_PUBLIC_BRANCH_KEY),
-  /** Supabase project (Sprint 3). */
+  /** Supabase project (public URL + anon key only — never the service-role key). */
   supabaseUrl: optional(process.env.EXPO_PUBLIC_SUPABASE_URL),
   supabaseAnonKey: optional(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY),
+  /** Dev-only override: "fixtures" forces the mock repository. Ignored in release builds. */
+  dataSource: optional(process.env.EXPO_PUBLIC_DATA_SOURCE),
 } as const;
 

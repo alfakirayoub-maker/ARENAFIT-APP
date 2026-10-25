@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshControl, StyleSheet, View } from 'react-native';
 
@@ -12,7 +12,7 @@ import { Screen } from '@/components/ui/Screen';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { ClassCardSkeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
-import { useSessions } from '@/data/queries';
+import { prefetchWeek, queryKeys, useRefresh, useWeekSessions } from '@/data/queries';
 import { addDays, clubNow, formatDayLong, startOfWeek, type ClubDate } from '@/lib/club-time';
 import { colors, spacing } from '@/theme';
 import { activityCategories, type ActivityCategory } from '@/types/domain';
@@ -31,12 +31,17 @@ export default function PlanningScreen() {
   const [selected, setSelected] = useState<ClubDate>(today);
   const [category, setCategory] = useState<CategoryFilter>('all');
 
-  const sessionsQuery = useSessions(monday, addDays(monday, 6));
-  const weekSessions = sessionsQuery.data ?? [];
-  const daySessions = weekSessions.filter(
-    (s) => s.date === selected && (category === 'all' || s.activity.category === category),
-  );
-  const datesWithClasses = new Set(weekSessions.map((s) => s.date));
+  // One cached request per week; day and category are filtered from it.
+  const weekQuery = useWeekSessions(monday);
+  const dayQuery = useWeekSessions(monday, { date: selected, category: category === 'all' ? undefined : category });
+  const refresh = useRefresh(queryKeys.sessions);
+  const daySessions = dayQuery.data ?? [];
+  const datesWithClasses = new Set((weekQuery.data ?? []).map((s) => s.date));
+
+  // Warm the next week so the arrow feels instant.
+  useEffect(() => {
+    if (monday < addDays(currentMonday, MAX_WEEKS_AHEAD * 7)) void prefetchWeek(addDays(monday, 7));
+  }, [monday, currentMonday]);
 
   const goToWeek = (offsetWeeks: number) => {
     const next = addDays(monday, offsetWeeks * 7);
@@ -53,11 +58,7 @@ export default function PlanningScreen() {
   return (
     <Screen
       refreshControl={
-        <RefreshControl
-          refreshing={sessionsQuery.isRefetching}
-          onRefresh={() => void sessionsQuery.refetch()}
-          tintColor={colors.primary}
-        />
+        <RefreshControl refreshing={refresh.refreshing} onRefresh={refresh.onRefresh} tintColor={colors.primary} />
       }>
       <ScreenHeader title={t('planning.title')} subtitle={t('planning.subtitle')} />
 
@@ -79,21 +80,23 @@ export default function PlanningScreen() {
         <Text variant="heading" accessibilityRole="header">
           {selected === today ? t('common.today') : formatDayLong(selected)}
         </Text>
-        {!sessionsQuery.isPending && daySessions.length > 0 && (
+        {daySessions.length > 0 && (
           <Text variant="caption" color="tertiary">
             {t('planning.sessionCount', { count: daySessions.length })}
           </Text>
         )}
       </View>
 
-      {sessionsQuery.isPending ? (
-        <View style={styles.list}>
-          <ClassCardSkeleton />
-          <ClassCardSkeleton />
-          <ClassCardSkeleton />
-        </View>
-      ) : sessionsQuery.isError ? (
-        <ErrorState compact onRetry={() => sessionsQuery.refetch()} />
+      {dayQuery.data === undefined ? (
+        dayQuery.isError ? (
+          <ErrorState compact onRetry={() => dayQuery.refetch()} />
+        ) : (
+          <View style={styles.list}>
+            <ClassCardSkeleton />
+            <ClassCardSkeleton />
+            <ClassCardSkeleton />
+          </View>
+        )
       ) : daySessions.length > 0 ? (
         <View style={styles.list}>
           {daySessions.map((s, i) => (

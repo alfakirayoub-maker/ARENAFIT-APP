@@ -15,6 +15,7 @@ import { Screen } from '@/components/ui/Screen';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Text } from '@/components/ui/Text';
 import { useActivities } from '@/data/queries';
+import { dataSource } from '@/data/source';
 import { useFavoriteActivities } from '@/features/favorites/store';
 import { useSession, type SessionKind } from '@/features/session/session';
 import { spacing } from '@/theme';
@@ -24,7 +25,7 @@ export default function ProfileScreen() {
   const { session, setMockKind, signOut } = useSession();
   const favorites = useFavoriteActivities();
   const activitiesQuery = useActivities();
-  const favoriteActivities = (activitiesQuery.data ?? []).filter((a) => favorites.isFavorite(a.id));
+  const favoriteActivities = (activitiesQuery.data ?? []).filter((a) => favorites.isFavorite(a.slug));
 
   const displayName =
     session.kind === 'member'
@@ -133,7 +134,7 @@ export default function ProfileScreen() {
         </ListGroup>
       </View>
 
-      {__DEV__ && <DevTools kind={session.kind} onChange={setMockKind} />}
+      {setMockKind && <DevTools kind={session.kind} onChange={setMockKind} />}
     </Screen>
   );
 }
@@ -152,6 +153,9 @@ function DevTools({ kind, onChange }: { kind: SessionKind; onChange: (k: Session
         value={kind}
         onChange={onChange}
       />
+      <Text variant="caption" color="tertiary" style={styles.devHint}>
+        {t('profile.devDataSource')} : {dataSource}
+      </Text>
       <View style={styles.devButton}>
         <Button label="UI kit" variant="ghost" icon="color-palette-outline" onPress={() => router.push('/dev/ui')} />
       </View>

@@ -1,5 +1,5 @@
 import { getLocales } from 'expo-localization';
-import i18n from 'i18next';
+import { createInstance } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 import ar from './locales/ar';
@@ -29,6 +29,8 @@ export function resolveDeviceLocale(): Locale {
   const code = getLocales()[0]?.languageCode;
   return supportedLocales.find((l) => l === code) ?? defaultLocale;
 }
+
+const i18n = createInstance();
 
 i18n.use(initReactI18next).init({
   resources,

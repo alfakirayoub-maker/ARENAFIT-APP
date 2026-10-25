@@ -26,18 +26,18 @@ export function PressableScale({
   ...rest
 }: PressableScaleProps) {
   const scale = useSharedValue(1);
-  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
 
   return (
     <AnimatedPressable
       accessibilityRole={accessibilityRole}
       disabled={disabled}
       onPressIn={(e) => {
-        scale.value = withTiming(scaleTo, { duration: motion.duration.fast });
+        scale.set(withTiming(scaleTo, { duration: motion.duration.fast }));
         onPressIn?.(e);
       }}
       onPressOut={(e) => {
-        scale.value = withTiming(1, { duration: motion.duration.base });
+        scale.set(withTiming(1, { duration: motion.duration.base }));
         onPressOut?.(e);
       }}
       onPress={(e) => {

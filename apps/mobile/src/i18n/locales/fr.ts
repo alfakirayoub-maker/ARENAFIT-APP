@@ -47,6 +47,7 @@ const fr = {
     previousWeek: 'Semaine précédente',
     nextWeek: 'Semaine suivante',
     finished: 'Terminé',
+    inProgress: 'En cours',
     empty: {
       title: 'Aucun cours ce jour',
       body: 'Choisissez un autre jour ou une autre catégorie.',
@@ -165,6 +166,7 @@ const fr = {
     },
     dev: 'Développement',
     devSession: 'Session simulée',
+    devDataSource: 'Source des données',
   },
   login: {
     title: 'Connexion membre',

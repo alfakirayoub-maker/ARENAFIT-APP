@@ -13,10 +13,8 @@ import { IconButton } from '@/components/ui/IconButton';
 import { InfoGrid, InfoTile } from '@/components/ui/InfoTile';
 import { ClassCardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
-import { useActivity, useCoaches, useSessions } from '@/data/queries';
+import { useActivity, useCoachesForActivity, useUpcomingSessions } from '@/data/queries';
 import { useFavoriteActivities } from '@/features/favorites/store';
-import { upcomingSessions } from '@/features/planning/session-utils';
-import { addDays, clubNow } from '@/lib/club-time';
 import { screenGutter, spacing } from '@/theme';
 
 const UPCOMING_LIMIT = 4;
@@ -25,25 +23,23 @@ export default function ActivityDetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const { t } = useTranslation();
   const activityQuery = useActivity(slug);
-  const coachesQuery = useCoaches();
-  const today = clubNow().date;
-  const sessionsQuery = useSessions(today, addDays(today, 13));
+  const activity = activityQuery.data;
+  const coachesQuery = useCoachesForActivity(activity?.id);
+  const upcomingQuery = useUpcomingSessions({ activityId: activity?.id, limit: UPCOMING_LIMIT }, { enabled: !!activity });
   const favorites = useFavoriteActivities();
 
-  const activity = activityQuery.data;
-
-  if (activityQuery.isPending) {
+  if (activityQuery.data === undefined && activityQuery.isError) {
+    return (
+      <DetailScreen>
+        <ErrorState onRetry={() => activityQuery.refetch()} />
+      </DetailScreen>
+    );
+  }
+  if (activityQuery.data === undefined) {
     return (
       <DetailScreen hero={<Skeleton height="100%" borderRadius={0} />}>
         <Skeleton width="60%" height={36} />
         <Skeleton height={90} />
-      </DetailScreen>
-    );
-  }
-  if (activityQuery.isError) {
-    return (
-      <DetailScreen>
-        <ErrorState onRetry={() => activityQuery.refetch()} />
       </DetailScreen>
     );
   }
@@ -55,9 +51,9 @@ export default function ActivityDetailScreen() {
     );
   }
 
-  const isFavorite = favorites.isFavorite(activity.id);
-  const coaches = (coachesQuery.data ?? []).filter((c) => activity.coachIds.includes(c.id));
-  const upcoming = upcomingSessions(sessionsQuery.data ?? []).filter((s) => s.activity.id === activity.id);
+  const isFavorite = favorites.isFavorite(activity.slug);
+  const coaches = coachesQuery.data ?? [];
+  const upcoming = upcomingQuery.data ?? [];
 
   return (
     <DetailScreen
@@ -67,7 +63,7 @@ export default function ActivityDetailScreen() {
           icon={isFavorite ? 'heart' : 'heart-outline'}
           active={isFavorite}
           accessibilityLabel={isFavorite ? t('activities.removeFavorite') : t('activities.addFavorite')}
-          onPress={() => favorites.toggle(activity.id)}
+          onPress={() => favorites.toggle(activity.slug)}
         />
       }>
       <View style={styles.titleBlock}>
@@ -123,10 +119,10 @@ export default function ActivityDetailScreen() {
         <Text variant="heading" accessibilityRole="header">
           {t('activities.upcoming')}
         </Text>
-        {sessionsQuery.isPending ? (
-          <ClassCardSkeleton />
+        {upcomingQuery.data === undefined ? (
+          upcomingQuery.isError ? <ErrorState compact onRetry={() => upcomingQuery.refetch()} /> : <ClassCardSkeleton />
         ) : upcoming.length > 0 ? (
-          <SessionList sessions={upcoming.slice(0, UPCOMING_LIMIT)} />
+          <SessionList sessions={upcoming} />
         ) : (
           <EmptyState compact icon="calendar-clear-outline" title={t('activities.noSessionsThisWeek')} />
         )}

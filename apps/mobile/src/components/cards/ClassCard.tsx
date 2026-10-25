@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { Text } from '@/components/ui/Text';
-import { coachLabel, hasStarted } from '@/features/planning/session-utils';
+import { coachLabel, hasEnded, hasStarted } from '@/features/planning/session-utils';
 import { useReminderOffsetLabel, useReminderSheet } from '@/features/reminders/ReminderSheet';
 import { useReminders } from '@/features/reminders/store';
 import { colors, radius, spacing } from '@/theme';
@@ -62,7 +62,7 @@ export function ClassCard({ session }: ClassCardProps) {
             {session.isCancelled ? (
               <Badge label={t('classDetail.cancelled')} tone="error" />
             ) : started ? (
-              <Badge label={t('planning.finished')} />
+              <Badge label={hasEnded(session) ? t('planning.finished') : t('planning.inProgress')} />
             ) : (
               <Badge label={t(`levels.${session.level}`)} />
             )}

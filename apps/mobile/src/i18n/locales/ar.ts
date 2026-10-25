@@ -46,6 +46,7 @@ const ar: Translation = {
     previousWeek: 'الأسبوع السابق',
     nextWeek: 'الأسبوع التالي',
     finished: 'انتهت',
+    inProgress: 'جارية',
     empty: {
       title: 'لا توجد حصص في هذا اليوم',
       body: 'اختر يومًا أو فئة أخرى.',
@@ -164,6 +165,7 @@ const ar: Translation = {
     },
     dev: 'التطوير',
     devSession: 'جلسة تجريبية',
+    devDataSource: 'مصدر البيانات',
   },
   login: {
     title: 'دخول الأعضاء',

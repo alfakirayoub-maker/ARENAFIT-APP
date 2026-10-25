@@ -1,37 +1,22 @@
 import i18n from '@/i18n';
 
+import { clubWallClock } from './club-clock';
+
+export { CLUB_TIME_ZONE, clubInstant, clubNow } from './club-clock';
+
 /**
- * Club-local calendar helpers.
+ * Club-local calendar helpers (formatting and date arithmetic).
  *
- * The planning is wall-clock time at the club (Africa/Casablanca): a session
- * is a `date` (YYYY-MM-DD) plus `startTime`/`endTime` (HH:MM). Those values are
- * displayed as-is — never converted — so "18:00" is always 18:00 at the club,
- * whatever the device timezone or Morocco's current UTC offset.
- *
- * Only "what time is it at the club right now" needs the timezone database.
+ * The planning is wall-clock time at the club: a session is a `date`
+ * (YYYY-MM-DD) plus `startTime`/`endTime` (HH:MM), displayed as-is — never
+ * converted. Anything involving a real instant goes through ./club-clock,
+ * which does not rely on the device's timezone database.
  */
-export const CLUB_TIME_ZONE = 'Africa/Casablanca';
 
 /** ISO calendar date, e.g. "2026-10-25". */
 export type ClubDate = string;
 /** 24h wall-clock time, e.g. "18:00". */
 export type ClubTime = string;
-
-const partsFormatter = new Intl.DateTimeFormat('en-GB', {
-  timeZone: CLUB_TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-});
-
-/** Current date and time at the club. */
-export function clubNow(now: Date = new Date()): { date: ClubDate; time: ClubTime } {
-  const p = Object.fromEntries(partsFormatter.formatToParts(now).map((x) => [x.type, x.value]));
-  return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
-}
 
 // Calendar arithmetic on plain dates, done in UTC so no device timezone or DST
 // can shift a day.
@@ -105,12 +90,7 @@ export function formatDateShort(date: ClubDate): string {
   return format(date, { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-/** "12 oct." — for instants (news publication dates). */
+/** "12 oct. 2026" — an instant (e.g. publication time) shown as its club-local date. */
 export function formatPublishedAt(iso: string): string {
-  return new Intl.DateTimeFormat(i18n.language, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: CLUB_TIME_ZONE,
-  }).format(new Date(iso));
+  return format(clubWallClock(new Date(iso)).date, { day: 'numeric', month: 'short', year: 'numeric' });
 }

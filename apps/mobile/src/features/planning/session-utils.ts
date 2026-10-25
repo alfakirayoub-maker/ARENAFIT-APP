@@ -7,6 +7,11 @@ export function hasStarted(session: ClassSession, now = clubNow()): boolean {
   return session.date < now.date || (session.date === now.date && session.startTime <= now.time);
 }
 
+/** True once the class has ended (club-local time). */
+export function hasEnded(session: ClassSession, now = clubNow()): boolean {
+  return session.date < now.date || (session.date === now.date && session.endTime <= now.time);
+}
+
 export function upcomingSessions(sessions: ClassSession[], now = clubNow()): ClassSession[] {
   return sessions.filter((s) => !s.isCancelled && !hasStarted(s, now));
 }

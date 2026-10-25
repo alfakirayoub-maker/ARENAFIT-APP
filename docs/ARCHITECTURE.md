@@ -1,6 +1,6 @@
 # Arena Fit — Technical architecture
 
-Status: Sprint 2 (screens on dev fixtures) done, awaiting review. This document is the reference for the
+Status: Sprint 3 (Supabase public catalogue) done, awaiting review. This document is the reference for the
 next sprints. Product requirements live in the master build brief. This
 document only covers how the product is built.
 
@@ -39,7 +39,7 @@ document only covers how the product is built.
 | Type | Inter (via `@expo-google-fonts/inter`). Swap for the brand font if Arena Fit has one |
 | Motion | Reanimated 4 (press scale, staggered entrance, skeleton pulse). Respects reduced motion |
 | i18n | i18next + react-i18next + expo-localization. FR is the source, AR/EN typed against it |
-| Data | TanStack Query over a `ContentRepository` interface (`src/data/`). Fixture implementation now, Supabase implementation in Sprint 3. Zod at the boundary (RPC payloads, deep-link params) |
+| Data | UI → query hooks (`src/data/queries.ts`, TanStack Query) → `ContentRepository` interface → Supabase repository (`src/data/supabase/`, anon key, rows validated with Zod). Dev-only fixture repository when Supabase isn't configured (`src/data/source.ts`). See §7 |
 | Local state | AsyncStorage-backed stores (`src/lib/persisted-store.ts`) for favorites, reminders and notification preferences. No account needed |
 | Session storage (Sprint 3+) | `expo-secure-store` for the auth token, created only for guests and members |
 | Config | `src/config/env.ts`: `EXPO_PUBLIC_*` variables (invite base URL, Branch key, Supabase). See `.env.example` |
@@ -76,11 +76,15 @@ apps/mobile/
       brand/            Logo (official file only), Artwork (photo slot + category fallback)
       navigation/       TabBar
     config/             env.ts (public runtime config)
-    data/               repository interface, fixture repository, query hooks
+    data/               repository interface, query hooks + cache policy, data source selection,
+                        supabase/ (client, row schemas, repository), fixture repository (dev)
     dev/fixtures/       DEVELOPMENT ONLY mock data (see header of each file)
     features/           session/, favorites/, reminders/, planning/, settings/
     i18n/               index.ts, locales/{fr,en,ar}.ts, typed keys
-    lib/                club-time (club-local calendar), persisted-store, haptics
+    lib/                club-clock (controlled instants), club-time (calendar/formatting),
+                        persisted-store, haptics
+  tests/                node:test suites (club clock, Supabase repository integration)
+  scripts/              check-release-bundle.sh
     theme/              tokens
     types/              UI view models (mirror the DB schema)
 ```
@@ -113,15 +117,24 @@ Classes are club-local wall-clock times: `class_sessions.session_date` (date)
 + `start_time` / `end_time` (time), interpreted in `Africa/Casablanca`. A class
 "at 18:00" stays at 18:00 whatever Morocco's UTC offset is (standard time,
 Ramadan switch, or any future rule change). The app displays these values as-is
-and never converts them. Absolute instants are derived only when needed
-(reminder scheduling, push timing) with `club_instant(date, time)` and the
-PostgREST computed fields `starts_at` / `ends_at`. Classes never span midnight.
+and never converts them. Classes never span midnight.
 
-Note on tz data: the server's tzdata (2026e) and Node's bundled ICU currently
-disagree about Morocco's offset since 20 Sep 2026 (UTC+0 vs UTC+1). Wall-clock
-storage makes the planning immune to that. Sprint 4 must compute reminder
-fire times from the club wall-clock time in a way that does not depend on stale
-device tz data (see risks).
+**Controlled club clock.** Morocco moved to permanent UTC+0 on 2026-09-20, and
+device/engine tz data can lag behind (Node's bundled ICU here still says UTC+1).
+So instants are never resolved through the device's `Africa/Casablanca` rules:
+
+* `public.club_utc_offsets` (migration `20261025120000_club_clock.sql`) holds the
+  offsets (IANA tzdata 2026e, 2024 onwards). `club_instant(date, time)`,
+  `club_local_timestamp(instant)` and the computed fields `starts_at` / `ends_at`
+  use it.
+* `apps/mobile/src/lib/club-clock.ts` mirrors the table and is the only place the
+  app converts between instants and club time (`clubNow`, `clubInstant`,
+  `clubWallClock`). A test fails if the two copies drift.
+* Ambiguous wall time (the repeated 01:00–01:59 on 2026-09-20) resolves to the
+  earlier instant. A non-existent time shifts forward by the gap.
+* Tests: `apps/mobile/tests/club-clock.test.mts` (run under 5 device timezones),
+  `supabase/tests/clock.test.sql`, and a server/app parity check in the
+  repository integration test.
 
 | Area | Tables |
 | --- | --- |
@@ -193,7 +206,7 @@ comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BR
 | --- | --- | --- |
 | 1 ✅ | Workspace, Expo Router, tokens, typography, i18n, tab navigation, logo slot, UI primitives, cards, skeletons, empty states, schema and seed | `tsc` clean, web/Android bundle exports, UI kit renders with no console errors |
 | 2 ✅ | Home, Planning (week selector + filters), Class detail, Activities, Coaches, News list/detail, Profile, Pass & Invitations UI, local reminders/favorites. Dev fixtures based on the real roster | All screens navigable with realistic data, plus loading, empty and error states |
-| 3 | Supabase repository (public content, no login), generated DB types. Member auth once the activation flow is decided (phone-based / imported members) | App runs against a Supabase project as a visitor, and RLS is verified from the client |
+| 3 ✅ | Supabase repositories for coaches, activities, planning and news (no login), controlled club clock, image storage, pgTAP RLS/seed/clock tests, cache strategy, release-bundle check | App runs against Supabase as a visitor, RLS verified in SQL and over HTTP |
 | 4 | Reminders (local scheduling, 15/30/60/120 min, server mirror), push token registration, notification preferences, schedule-change pushes (Edge Function) | Reminder fires on device, and a changed session re-notifies followers |
 | 5 | Guest-pass RPCs, offer/share flow, Branch deferred deep linking (+ code fallback), invitation states, Guest Mode gating | End-to-end: member shares → guest activates → QR shown |
 | 6 | Admin app scaffold and auth, `/reception/scanner`, check/redeem RPCs | A pass can't be redeemed twice. All verdict screens done |
@@ -212,11 +225,11 @@ comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BR
 3. **Branch setup** needs a Branch account, the final domain, iOS associated domains and
    Android intent filters (config plugin) in the Guest Pass sprint. Branch's React Native
    SDK needs a development build, not Expo Go.
-4. **Member authentication** is pending your decision (before Sprint 3 auth work).
-5. **Reminder fire times vs. device tz data** (Sprint 4). Device tz databases can lag behind
-   Morocco's rule changes. Options: schedule from the server-computed instant
-   (`starts_at`), or from wall-clock components when the device is set to
-   Africa/Casablanca. To decide in Sprint 4.
+4. **Member authentication** is pending your decision. The `AuthProvider` boundary
+   (`src/features/session/`) is ready for it.
+5. **Reminder fire times** (Sprint 4) must come from `clubInstant()` / `starts_at`, never from
+   device tz rules. A future Moroccan rule change means a new `club_utc_offsets` migration
+   plus an app update. Pushing the offsets to the app at runtime is possible if that's too slow.
 6. **Activity categories** of club-specific formats are inferred from names. They're flagged
    for club review in `seed.sql`.
 7. **Recurring schedule.** The MVP stores concrete sessions, and the admin duplicates days
@@ -228,3 +241,46 @@ comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BR
 10. **Guest Pass rules not yet set:** invitation-link validity, pass validity, and whether an
     expired, never-activated invitation gives the pass back (currently defaults to yes in
     the `guest_pass_availability` view). To decide before Sprint 5.
+
+## 7. Data layer (Sprint 3)
+
+```
+Screen ─► query hook (src/data/queries.ts) ─► ContentRepository ─► Supabase repository ─► PostgREST (anon key, RLS)
+                                                                └► fixture repository (dev builds only)
+```
+
+* **No Supabase in components.** Screens import hooks only. Hooks import the
+  `repository` chosen in `src/data/source.ts`.
+* **Source selection:** Supabase when `EXPO_PUBLIC_SUPABASE_URL` / `_ANON_KEY` are set.
+  Fixtures in development otherwise, or when `EXPO_PUBLIC_DATA_SOURCE=fixtures`. A release
+  build without config fails with `config` errors (error states), never mock data. Fixtures
+  and the mock member are excluded from release bundles (`npm run check:release` verifies it).
+* **Errors** are `DataError` kinds: `network`, `server` (retried), `rejected`,
+  `invalid-data`, `config` (not retried). supabase-js's own retries are disabled, so
+  TanStack Query owns the policy: 2 retries with backoff, and the error state after about 4s.
+* **Cache:** catalogue 30 min, planning 5 min, news 10 min stale time, 24 h garbage
+  collection. The planning is fetched one week at a time and day/category filters derive
+  from it. The next week is prefetched. Detail screens are seeded from cached lists, keeping
+  the list's fetch time. Data refetches on app foreground (when stale) and on pull-to-refresh
+  (invalidation). Cached data stays visible when a refetch fails.
+* **Defence in depth:** besides RLS, the repository filters `is_active`, `status = 'published'`,
+  `published_at <= now()` and `visibility <> 'hidden'`, so an admin account never sees drafts
+  in the member app.
+* **Images:** nullable `*_path` columns, public buckets `coaches`, `activities`, `classes`
+  (new, a per-session override) and `news`, images only and 5 MB max. Missing image means
+  fallback artwork.
+* **Favorites** are stored on the device by activity **slug**, so they can migrate to
+  `favorite_activities` after member activation.
+* **Auth boundary:** `AuthProvider` (`restore`, `signOut`). Release builds use the visitor
+  provider, development builds the mock provider. A real member provider plugs in without
+  screen changes.
+
+### Checks
+
+| Command | What it verifies |
+| --- | --- |
+| `npm run typecheck` / `npm run lint` (apps/mobile) | TypeScript, ESLint (expo config, React Compiler rules) |
+| `npm test` (apps/mobile) | Club clock tests. Plus the Supabase repository integration suite when `SUPABASE_TEST_URL` / `SUPABASE_TEST_ANON_KEY` are set |
+| `npm run test:timezones` | Club clock under 5 device timezones |
+| `npm run check:release` | Production Android/iOS bundles contain no fixtures, mock member or service-role key |
+| `npm run db:test` (root) | Clean DB, then migrations, production seed, pgTAP (clock, seed facts, RLS), dev fixtures load check |

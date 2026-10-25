@@ -45,6 +45,7 @@ const en: Translation = {
     previousWeek: 'Previous week',
     nextWeek: 'Next week',
     finished: 'Finished',
+    inProgress: 'In progress',
     empty: {
       title: 'No classes this day',
       body: 'Pick another day or category.',
@@ -163,6 +164,7 @@ const en: Translation = {
     },
     dev: 'Development',
     devSession: 'Mock session',
+    devDataSource: 'Data source',
   },
   login: {
     title: 'Member login',

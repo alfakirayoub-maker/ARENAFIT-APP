@@ -26,11 +26,11 @@ export function Skeleton({ width = '100%', height = 16, borderRadius = radius.sm
 
   useEffect(() => {
     if (reduceMotion) return;
-    opacity.value = withRepeat(withTiming(1, { duration: 900 }), -1, true);
+    opacity.set(withRepeat(withTiming(1, { duration: 900 }), -1, true));
     return () => cancelAnimation(opacity);
   }, [opacity, reduceMotion]);
 
-  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.get() }));
 
   return (
     <Animated.View

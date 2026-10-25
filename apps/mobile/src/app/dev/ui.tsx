@@ -18,21 +18,16 @@ import { SectionHeader } from '@/components/ui/SectionHeader';
 import { ClassCardSkeleton, MediaCardSkeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
 import { colors, radius, spacing, typography, type TypographyVariant } from '@/theme';
-import { buildFixtureSessions } from '@/dev/fixtures/schedule';
-import { addDays, clubNow } from '@/lib/club-time';
-import type { ClassSession } from '@/types/domain';
+import { useUpcomingSessions } from '@/data/queries';
 
 // Dev-only visual QA page for the design system. Not reachable in production.
-
-const sampleSessions: ClassSession[] = buildFixtureSessions(clubNow().date)
-  .filter((x) => x.date === addDays(clubNow().date, 1))
-  .slice(0, 2);
 
 const swatches = Object.entries(colors).filter(([, v]) => v.startsWith('#'));
 const filters = ['Tous', 'Fitness', 'Combat', 'Cycling', 'Mind & Body'];
 
 export default function UiKitScreen() {
   const [filter, setFilter] = useState(filters[0]);
+  const sampleSessions = useUpcomingSessions({ limit: 2 }).data ?? [];
 
   if (!__DEV__) return <Redirect href="/" />;
 

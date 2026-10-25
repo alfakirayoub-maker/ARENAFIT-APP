@@ -16,7 +16,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
 import { ToastProvider } from '@/components/ui/Toast';
-import { queryClient } from '@/data/queries';
+import { queryClient, useRefetchOnAppForeground } from '@/data/queries';
 import { ReminderSheetProvider } from '@/features/reminders/ReminderSheet';
 import { SessionProvider } from '@/features/session/session';
 import { colors } from '@/theme';
@@ -45,6 +45,7 @@ export default function RootLayout() {
     Inter_800ExtraBold,
   });
   const ready = fontsLoaded || fontError !== null;
+  useRefetchOnAppForeground();
 
   useEffect(() => {
     if (ready) SplashScreen.hide();

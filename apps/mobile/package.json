@@ -7,7 +7,9 @@
     "@expo/ui": "~58.0.23",
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@supabase/supabase-js": "^2.118.0",
     "@tanstack/react-query": "^5.104.5",
+    "eslint-config-expo": "~58.0.4",
     "expo": "~58.0.19",
     "expo-constants": "~58.0.13",
     "expo-device": "~58.0.5",
@@ -33,10 +35,13 @@
     "react-native-safe-area-context": "~5.10.1",
     "react-native-screens": "~4.30.0",
     "react-native-web": "~0.21.4",
-    "react-native-worklets": "0.13.0"
+    "react-native-worklets": "0.13.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "@types/react": "~19.3.0",
+    "eslint": "^9.39.5",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -45,7 +50,10 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ./tests/support/register-aliases.mjs --test 'tests/**/*.test.mts'",
+    "test:timezones": "for tz in UTC Africa/Casablanca Europe/Paris America/New_York Asia/Tokyo; do TZ=$tz node --test tests/club-clock.test.mts || exit 1; done",
+    "check:release": "scripts/check-release-bundle.sh"
   },
   "private": true
 }

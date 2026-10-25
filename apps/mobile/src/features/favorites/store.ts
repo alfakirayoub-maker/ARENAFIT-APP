@@ -1,21 +1,25 @@
 import { createPersistedStore } from '@/lib/persisted-store';
 
 /**
- * Favorite activity ids, kept on the device. Development builds start with a
- * few favorites so screens can be reviewed populated.
+ * Favorite activities, kept on the device (no account needed).
+ *
+ * Stored by activity **slug**, not database id: slugs are stable across
+ * environments and data sources, so the list can later be migrated to the
+ * member's `favorite_activities` rows once activation exists (slug → id lookup
+ * at sync time). Development builds start with a few favorites so screens can
+ * be reviewed populated.
  */
 const store = createPersistedStore<string[]>(
-  'favorite-activities',
-  __DEV__ ? ['activity-rpm', 'activity-body-pump', 'activity-body-combat', 'activity-mobility'] : [],
+  'favorite-activities.v2',
+  __DEV__ ? ['rpm', 'body-pump', 'body-combat', 'mobility'] : [],
 );
 
 export function useFavoriteActivities() {
-  const ids = store.useStore();
+  const slugs = store.useStore();
   return {
-    ids,
-    isFavorite: (activityId: string) => ids.includes(activityId),
-    toggle: (activityId: string) =>
-      store.set((prev) => (prev.includes(activityId) ? prev.filter((id) => id !== activityId) : [...prev, activityId])),
+    slugs,
+    isFavorite: (activitySlug: string) => slugs.includes(activitySlug),
+    toggle: (activitySlug: string) =>
+      store.set((prev) => (prev.includes(activitySlug) ? prev.filter((s) => s !== activitySlug) : [...prev, activitySlug])),
   };
 }
-

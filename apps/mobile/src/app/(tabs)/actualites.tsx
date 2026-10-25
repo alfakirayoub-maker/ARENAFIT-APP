@@ -10,7 +10,7 @@ import { FadeIn } from '@/components/ui/FadeIn';
 import { Screen } from '@/components/ui/Screen';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { MediaCardSkeleton, Skeleton } from '@/components/ui/Skeleton';
-import { useNews } from '@/data/queries';
+import { queryKeys, useNews, useNewsCategories, useRefresh } from '@/data/queries';
 import { colors, radius, spacing } from '@/theme';
 import type { NewsCategory } from '@/types/domain';
 
@@ -18,15 +18,16 @@ type Filter = 'all' | NewsCategory;
 
 export default function NewsScreen() {
   const { t } = useTranslation();
-  const newsQuery = useNews();
   const [filter, setFilter] = useState<Filter>('all');
+  // Same cached list for both: filtering and categories cost no extra request.
+  const newsQuery = useNews(filter === 'all' ? undefined : filter);
+  const categoriesQuery = useNewsCategories();
+  const refresh = useRefresh(queryKeys.news);
 
-  const articles = newsQuery.data ?? [];
-  const visible = filter === 'all' ? articles : articles.filter((a) => a.category === filter);
-  const [lead, ...rest] = visible;
+  const [lead, ...rest] = newsQuery.data ?? [];
 
-  // Only offer categories that actually have articles.
-  const usedCategories = [...new Set(articles.map((a) => a.category))];
+  // Only offer categories that actually have published articles.
+  const usedCategories = categoriesQuery.data ?? [];
   const options: ChipOption<Filter>[] = [
     { value: 'all', label: t('newsCategories.all') },
     ...usedCategories.map((c) => ({ value: c, label: t(`newsCategories.${c}`) })),
@@ -35,19 +36,19 @@ export default function NewsScreen() {
   return (
     <Screen
       refreshControl={
-        <RefreshControl refreshing={newsQuery.isRefetching} onRefresh={() => void newsQuery.refetch()} tintColor={colors.primary} />
+        <RefreshControl refreshing={refresh.refreshing} onRefresh={refresh.onRefresh} tintColor={colors.primary} />
       }>
       <ScreenHeader title={t('news.title')} subtitle={t('news.subtitle')} />
 
-      {newsQuery.isPending ? (
+      {newsQuery.data === undefined && !newsQuery.isError ? (
         <View style={styles.list}>
           <MediaCardSkeleton height={190} />
           <Skeleton height={136} borderRadius={radius.xl} />
           <Skeleton height={136} borderRadius={radius.xl} />
         </View>
-      ) : newsQuery.isError ? (
+      ) : newsQuery.data === undefined ? (
         <ErrorState onRetry={() => newsQuery.refetch()} />
-      ) : articles.length === 0 ? (
+      ) : usedCategories.length === 0 ? (
         <EmptyState icon="newspaper-outline" title={t('empty.noNews.title')} body={t('empty.noNews.body')} />
       ) : (
         <>
