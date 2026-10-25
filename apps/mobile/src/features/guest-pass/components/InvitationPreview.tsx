@@ -139,7 +139,7 @@ function StateView({ state }: { state: StateKey }) {
       footer={
         <View style={styles.footer}>
           {state === 'has_active_pass' || state === 'used' ? (
-            <Button label={t('guestPass.home.show')} size="lg" fullWidth onPress={() => router.replace('/guest/pass')} />
+            <Button label={t('guestPass.home.use')} size="lg" fullWidth onPress={() => router.replace('/guest/pass')} />
           ) : (
             <Button label={t('guestPass.invite.discover')} size="lg" fullWidth onPress={() => router.replace('/')} />
           )}

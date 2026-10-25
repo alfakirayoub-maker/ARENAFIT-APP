@@ -1,5 +1,6 @@
 -- =============================================================================
--- Guest Pass flow: invitation → share link / short code → activation → QR
+-- Guest Pass flow: invitation → share link / short code → activation →
+-- guest scans the reception QR → redemption
 --
 -- Pass lifecycle (one row per offered pass in guest_invitations):
 --
@@ -7,15 +8,21 @@
 --                allowance − invitations that still hold a pass)
 --      │ create_guest_invitation()            (balance row locked: no overselling)
 --      ▼
---    sent ──activate──▶ activated ──(Sprint 6: reception)──▶ used ──(later)──▶ converted
+--    sent ──activate──▶ activated ──redeem_my_guest_pass──▶ used ──(later)──▶ converted
 --      │                   │
 --      ├─cancel──▶ cancelled        (pass returned to the balance)
 --      └─expiry──▶ expired ◀────────┘  (unused at expires_at: pass returned
 --                                       when guest_pass.refund_expired_unused)
 --
--- Secrets: share-link token, short fallback code and QR redemption token are
--- three different random values. Only their SHA-256 hashes are stored; raw
--- values are returned once by the RPC that creates them.
+-- Reception: the club displays a printed QR (AFR1.<station token>) that
+-- identifies a reception station. The GUEST scans it with their own phone;
+-- the server redeems the pass of the authenticated guest. The QR alone grants
+-- nothing: station QR + authenticated guest + valid active pass are all
+-- required. Guests never display a QR; reception needs no device.
+--
+-- Secrets: share-link token, short fallback code and station tokens are
+-- random values stored only as SHA-256 hashes; raw values are returned once
+-- by the function that creates them.
 -- Every mutation goes through the SECURITY DEFINER functions below; clients
 -- have no write access to these tables.
 -- =============================================================================
@@ -59,16 +66,44 @@ alter table public.guest_invitations
   add constraint guest_invitations_used_ts check (status not in ('used', 'converted') or used_at is not null);
 create index guest_invitations_due_idx on public.guest_invitations (expires_at) where status in ('sent', 'activated');
 
-alter table public.guest_passes
-  add column qr_issued_at timestamptz not null default now();
+-- Reception stations: each has a printed QR carrying a secret token (hash
+-- only here). Several stations are supported; the app flow doesn't change.
+create table public.reception_stations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (char_length(name) between 1 and 80),
+  token_hash bytea not null unique,
+  active boolean not null default true,
+  last_rotated_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create trigger set_updated_at before update on public.reception_stations
+  for each row execute function public.set_updated_at();
+alter table public.reception_stations enable row level security;
+
+-- One redemption per pass: unique(guest_pass_id) makes a second visit
+-- impossible even under concurrent scans.
+create table public.guest_redemptions (
+  id uuid primary key default gen_random_uuid(),
+  guest_pass_id uuid not null unique references public.guest_passes (id) on delete restrict,
+  guest_profile_id uuid not null references public.profiles (id) on delete cascade,
+  reception_station_id uuid not null references public.reception_stations (id) on delete restrict,
+  redeemed_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+create index guest_redemptions_station_idx on public.guest_redemptions (reception_station_id, redeemed_at);
+alter table public.guest_redemptions enable row level security;
+create policy "guest_redemptions: staff read" on public.guest_redemptions
+  for select to authenticated using (public.is_staff());
 
 -- Funnel / audit trail (created → shared → opened → activated → used → converted).
 create table public.guest_pass_events (
   id bigint generated always as identity primary key,
-  invitation_id uuid not null references public.guest_invitations (id) on delete cascade,
+  invitation_id uuid references public.guest_invitations (id) on delete cascade,
+  reception_station_id uuid references public.reception_stations (id) on delete set null,
   event text not null check (event in (
-    'gift_created', 'gift_shared', 'link_rotated', 'invitation_opened',
-    'gift_activated', 'gift_cancelled', 'gift_expired', 'qr_reissued'
+    'gift_created', 'gift_shared', 'link_rotated', 'invitation_opened', 'gift_activated',
+    'gift_cancelled', 'gift_expired', 'reception_qr_scanned', 'guest_pass_redeemed'
   )),
   actor_id uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now()
@@ -87,17 +122,15 @@ create table public.guest_code_attempts (
 create index guest_code_attempts_client_idx on public.guest_code_attempts (client_key, attempted_at);
 alter table public.guest_code_attempts enable row level security;
 
--- The old availability view is replaced by private.available_passes().
-drop view public.guest_pass_availability;
-
 -- Hashes are never readable through the API, even by the people involved
 -- (short-code hashes would be brute-forceable offline).
 revoke all on public.guest_invitations, public.guest_passes, public.guest_pass_balances,
-  public.guest_redemptions, public.guest_pass_events, public.guest_code_attempts from anon, authenticated;
+  public.guest_redemptions, public.guest_pass_events, public.guest_code_attempts,
+  public.reception_stations from anon, authenticated;
 grant select (id, inviter_id, invitee_name, status, expires_at, guest_profile_id, activated_at, cancelled_at,
   converted_at, used_at, expired_at, last_shared_at, created_at, updated_at)
   on public.guest_invitations to authenticated;
-grant select (id, invitation_id, guest_profile_id, sessions_allowed, valid_until, qr_issued_at, created_at, updated_at)
+grant select (id, invitation_id, guest_profile_id, sessions_allowed, valid_until, created_at, updated_at)
   on public.guest_passes to authenticated;
 grant select on public.guest_pass_balances, public.guest_redemptions, public.guest_pass_events to authenticated;
 
@@ -123,7 +156,7 @@ returns bytea language sql immutable set search_path = '' as $$
   select extensions.digest(convert_to(p_value, 'UTF8'), 'sha256')
 $$;
 
--- 256-bit URL-safe token (share link, QR).
+-- 256-bit URL-safe token (share link, reception station).
 create or replace function private.random_token()
 returns text language sql volatile set search_path = '' as $$
   select rtrim(translate(encode(extensions.gen_random_bytes(32), 'base64'), '+/', '-_'), '=')
@@ -184,9 +217,10 @@ returns void language sql volatile set search_path = '' as $$
   insert into public.guest_code_attempts (client_key) values (private.client_key());
 $$;
 
-create or replace function private.log_event(p_invitation uuid, p_event text)
+create or replace function private.log_event(p_invitation uuid, p_event text, p_station uuid default null)
 returns void language sql volatile set search_path = '' as $$
-  insert into public.guest_pass_events (invitation_id, event, actor_id) values (p_invitation, p_event, auth.uid());
+  insert into public.guest_pass_events (invitation_id, event, actor_id, reception_station_id)
+  values (p_invitation, p_event, auth.uid(), p_station);
 $$;
 
 create or replace function private.is_eligible_member(p_user uuid)
@@ -509,7 +543,7 @@ end;
 $$;
 
 -- Atomic, idempotent activation by the calling guest identity.
---   result: activated (qr_token returned once) | already_active | expired |
+--   result: activated | already_active | expired |
 --           cancelled | already_claimed | used | own_invitation |
 --           not_eligible | has_active_pass | invalid | rate_limited
 create or replace function public.activate_guest_invitation(p_token text default null, p_code text default null)
@@ -523,8 +557,6 @@ declare
   uid uuid := auth.uid();
   inv_id uuid;
   inv public.guest_invitations;
-  qr text;
-  pass public.guest_passes;
 begin
   if uid is null then return jsonb_build_object('result', 'not_eligible'); end if;
   if (select kind from public.profiles where id = uid) = 'member' then
@@ -572,20 +604,19 @@ begin
     return jsonb_build_object('result', 'has_active_pass');
   end if;
 
-  qr := private.random_token();
   update public.guest_invitations
   set status = 'activated', guest_profile_id = uid, activated_at = now()
   where id = inv.id;
-  insert into public.guest_passes (invitation_id, guest_profile_id, qr_token_hash, sessions_allowed, valid_until)
-  values (inv.id, uid, private.sha256(qr), private.setting_int('guest_pass.sessions_per_pass', 1), inv.expires_at)
-  returning * into pass;
+  insert into public.guest_passes (invitation_id, guest_profile_id, sessions_allowed, valid_until)
+  values (inv.id, uid, private.setting_int('guest_pass.sessions_per_pass', 1), inv.expires_at);
   perform private.log_event(inv.id, 'gift_activated');
 
-  return jsonb_build_object('result', 'activated', 'qr_token', qr, 'pass', public.get_my_guest_pass());
+  return jsonb_build_object('result', 'activated', 'pass', public.get_my_guest_pass());
 end;
 $$;
 
--- The caller's current guest pass (most recent), or null.
+-- The caller's current guest pass, or null: the active one if any, else the
+-- most recent (used / expired), with its redemption if it was used.
 create or replace function public.get_my_guest_pass()
 returns jsonb
 language plpgsql
@@ -605,21 +636,35 @@ begin
     'sessions', p.sessions_allowed,
     'valid_until', p.valid_until,
     'activated_at', i.activated_at,
-    'used_at', i.used_at,
-    'qr_issued_at', p.qr_issued_at
+    'redeemed_at', r.redeemed_at,
+    'station_name', st.name
   ) into result
   from public.guest_passes p
   join public.guest_invitations i on i.id = p.invitation_id
+  left join public.guest_redemptions r on r.guest_pass_id = p.id
+  left join public.reception_stations st on st.id = r.reception_station_id
   where p.guest_profile_id = uid
-  order by p.created_at desc
+  order by (i.status = 'activated') desc, p.created_at desc
   limit 1;
   return result;
 end;
 $$;
 
--- New QR token for the caller's active pass (e.g. the device lost it). The
--- previous token stops working; returned once, stored hashed.
-create or replace function public.reissue_guest_pass_qr()
+-- -----------------------------------------------------------------------------
+-- Reception check-in: the guest scans the station QR with their phone
+-- -----------------------------------------------------------------------------
+
+-- Redeems the CALLER's active pass at the station identified by the scanned
+-- QR (AFR1.<token>). The guest is the authenticated session — never a
+-- client-supplied id. Everything happens in this one transaction:
+--   guest? → station token valid? → station active? → active pass? →
+--   not expired? → not used? → redemption row (unique per pass) + status used
+--   + events.
+-- Concurrent scans by the same guest queue on the profile row lock; the
+-- unique redemption per pass is the last line of defence.
+--   result: redeemed | already_used | expired | no_pass | invalid_qr |
+--           station_inactive | not_guest
+create or replace function public.redeem_my_guest_pass(p_reception_qr text)
 returns jsonb
 language plpgsql
 volatile
@@ -628,29 +673,130 @@ set search_path = ''
 as $$
 declare
   uid uuid := auth.uid();
-  pass_id uuid;
+  station public.reception_stations;
+  inv public.guest_invitations;
   inv_id uuid;
-  qr text;
+  pass_id uuid;
+  red public.guest_redemptions;
+  prev record;
 begin
-  if uid is null then raise exception 'gp_no_active_pass' using errcode = 'P0001'; end if;
-  perform private.expire_due(null, uid);
-  select p.id, p.invitation_id into pass_id, inv_id
-  from public.guest_passes p join public.guest_invitations i on i.id = p.invitation_id
-  where p.guest_profile_id = uid and i.status = 'activated'
-  order by p.created_at desc limit 1
-  for update of p;
-  if pass_id is null then raise exception 'gp_no_active_pass' using errcode = 'P0001'; end if;
+  if uid is null or coalesce((select kind::text from public.profiles where id = uid), '') <> 'guest' then
+    return jsonb_build_object('result', 'not_guest');
+  end if;
+  perform 1 from public.profiles where id = uid for update;
 
-  loop
-    qr := private.random_token();
-    begin
-      update public.guest_passes set qr_token_hash = private.sha256(qr), qr_issued_at = now() where id = pass_id;
-      exit;
-    exception when unique_violation then
-    end;
-  end loop;
-  perform private.log_event(inv_id, 'qr_reissued');
-  return jsonb_build_object('qr_token', qr);
+  if p_reception_qr is null or p_reception_qr !~ '^AFR1\.[A-Za-z0-9_-]{43}$' then
+    return jsonb_build_object('result', 'invalid_qr');
+  end if;
+  select * into station from public.reception_stations
+  where token_hash = private.sha256(substr(p_reception_qr, 6));
+  if not found then return jsonb_build_object('result', 'invalid_qr'); end if;
+  if not station.active then return jsonb_build_object('result', 'station_inactive'); end if;
+
+  select i.id into inv_id
+  from public.guest_invitations i
+  join public.guest_passes p on p.invitation_id = i.id
+  where p.guest_profile_id = uid
+  order by (i.status = 'activated') desc, p.created_at desc
+  limit 1
+  for update of i;
+  perform private.log_event(inv_id, 'reception_qr_scanned', station.id);
+  if inv_id is null then return jsonb_build_object('result', 'no_pass'); end if;
+  select * into inv from public.guest_invitations where id = inv_id;
+
+  if inv.status = 'activated' and inv.expires_at <= now() then
+    update public.guest_invitations
+    set status = 'expired', expired_at = now(),
+        pass_returned = private.setting_bool('guest_pass.refund_expired_unused', true)
+    where id = inv.id;
+    perform private.log_event(inv.id, 'gift_expired');
+    inv.status := 'expired';
+  end if;
+
+  if inv.status = 'expired' then
+    return jsonb_build_object('result', 'expired', 'valid_until', inv.expires_at);
+  end if;
+  if inv.status in ('used', 'converted') then
+    select r.redeemed_at, st.name into prev
+    from public.guest_passes p
+    join public.guest_redemptions r on r.guest_pass_id = p.id
+    join public.reception_stations st on st.id = r.reception_station_id
+    where p.invitation_id = inv.id;
+    return jsonb_build_object('result', 'already_used',
+      'redeemed_at', coalesce(prev.redeemed_at, inv.used_at), 'station_name', prev.name);
+  end if;
+  if inv.status <> 'activated' then return jsonb_build_object('result', 'no_pass'); end if;
+
+  select id into pass_id from public.guest_passes where invitation_id = inv.id;
+  insert into public.guest_redemptions (guest_pass_id, guest_profile_id, reception_station_id)
+  values (pass_id, uid, station.id)
+  returning * into red;
+  update public.guest_invitations set status = 'used', used_at = red.redeemed_at where id = inv.id;
+  perform private.log_event(inv.id, 'guest_pass_redeemed', station.id);
+
+  return jsonb_build_object(
+    'result', 'redeemed',
+    'redeemed_at', red.redeemed_at,
+    'station_name', station.name,
+    'sessions', (select sessions_allowed from public.guest_passes where id = pass_id)
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- Reception station management (service role only: SQL editor / admin backend)
+-- -----------------------------------------------------------------------------
+
+-- Creates a station and returns its QR payload ONCE (print it; only the hash
+-- is kept). Example: select public.create_reception_station('Réception principale');
+create or replace function public.create_reception_station(p_name text)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  token text := private.random_token();
+  station public.reception_stations;
+begin
+  insert into public.reception_stations (name, token_hash) values (trim(p_name), private.sha256(token))
+  returning * into station;
+  return jsonb_build_object('station_id', station.id, 'name', station.name, 'qr_payload', 'AFR1.' || token);
+end;
+$$;
+
+-- New token for a station: the previous printed QR stops working at once.
+create or replace function public.rotate_reception_station_token(p_station_id uuid)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  token text := private.random_token();
+  station public.reception_stations;
+begin
+  update public.reception_stations
+  set token_hash = private.sha256(token), last_rotated_at = now()
+  where id = p_station_id
+  returning * into station;
+  if not found then raise exception 'gp_not_found' using errcode = 'P0001'; end if;
+  return jsonb_build_object('station_id', station.id, 'name', station.name, 'qr_payload', 'AFR1.' || token);
+end;
+$$;
+
+create or replace function public.set_reception_station_active(p_station_id uuid, p_active boolean)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+begin
+  update public.reception_stations set active = p_active where id = p_station_id;
+  if not found then raise exception 'gp_not_found' using errcode = 'P0001'; end if;
 end;
 $$;
 
@@ -690,8 +836,11 @@ revoke all on function
   public.preview_guest_invitation(text, text),
   public.activate_guest_invitation(text, text),
   public.get_my_guest_pass(),
-  public.reissue_guest_pass_qr(),
-  public.expire_guest_invitations()
+  public.redeem_my_guest_pass(text),
+  public.expire_guest_invitations(),
+  public.create_reception_station(text),
+  public.rotate_reception_station_token(uuid),
+  public.set_reception_station_active(uuid, boolean)
 from public, anon, authenticated;
 
 grant execute on function public.preview_guest_invitation(text, text) to anon, authenticated;
@@ -703,6 +852,11 @@ grant execute on function
   public.cancel_guest_invitation(uuid),
   public.activate_guest_invitation(text, text),
   public.get_my_guest_pass(),
-  public.reissue_guest_pass_qr()
+  public.redeem_my_guest_pass(text)
 to authenticated;
-grant execute on function public.expire_guest_invitations() to service_role;
+grant execute on function
+  public.expire_guest_invitations(),
+  public.create_reception_station(text),
+  public.rotate_reception_station_token(uuid),
+  public.set_reception_station_active(uuid, boolean)
+to service_role;

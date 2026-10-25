@@ -11,5 +11,8 @@
     "test": "npm run test --workspaces --if-present",
     "db:test": "scripts/db/test.sh",
     "local-stack": "scripts/local-stack/up.sh"
+  },
+  "devDependencies": {
+    "qrcode": "^1.5.4"
   }
 }

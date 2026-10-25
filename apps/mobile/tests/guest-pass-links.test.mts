@@ -4,13 +4,12 @@ import { describe, it } from 'node:test';
 
 import { createBranchLinkService, createLocalLinkService, type BranchLike } from '../src/features/guest-pass/link-service.ts';
 import {
-  buildGuestPassQr,
   buildInvitationUrl,
   buildShareMessage,
   isShareToken,
   normalizeShortCode,
   parseBranchParams,
-  parseGuestPassQr,
+  parseReceptionQr,
   resolveIncomingUrl,
   type InvitationRef,
   type LinkConfig,
@@ -162,13 +161,34 @@ describe('incoming URLs (+native-intent)', () => {
   });
 });
 
-describe('Guest Pass QR payload', () => {
-  it('is an opaque versioned token with no personal data', () => {
-    const payload = buildGuestPassQr(TOKEN);
-    assert.equal(payload, `AFG1.${TOKEN}`);
-    assert.equal(parseGuestPassQr(payload), TOKEN);
-    assert.equal(parseGuestPassQr(`AFG2.${TOKEN}`), null);
-    assert.equal(parseGuestPassQr('{"guest":"Sara"}'), null);
-    assert.throws(() => buildGuestPassQr('short'));
+describe('reception QR (scanned by the guest)', () => {
+  const STATION = `AFR1.${OTHER}`;
+
+  it('accepts only the Arena Fit reception format', () => {
+    assert.equal(parseReceptionQr(STATION), STATION);
+    assert.equal(parseReceptionQr(`  ${STATION}\n`), STATION, 'scanner whitespace is trimmed');
+  });
+
+  it('rejects URLs, invitation links, other codes and malformed strings — nothing is opened', () => {
+    for (const bad of [
+      'https://example.com/promo',
+      `https://arenafit-test.app.link/?af_invite=${TOKEN}`,
+      `arenafit://invite/${TOKEN}`,
+      `http://localhost:8099/invite/${TOKEN}`,
+      'AF-7K4P-9XYZ',
+      `AFG1.${TOKEN}`, // the removed guest-QR format
+      `AFR2.${TOKEN}`,
+      'AFR1.',
+      `AFR1.${TOKEN}x`,
+      `AFR1.${TOKEN.slice(1)}`,
+      `afr1.${TOKEN}`,
+      `AFR1.${TOKEN.replace('q', '/')}`,
+      'WIFI:S:arena;T:WPA;P:secret;;',
+      '',
+      null,
+      42,
+    ]) {
+      assert.equal(parseReceptionQr(bad), null, String(bad));
+    }
   });
 });

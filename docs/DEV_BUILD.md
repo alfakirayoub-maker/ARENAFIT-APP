@@ -110,6 +110,20 @@ Run on at least one Android 13+ phone and one iPhone:
   not verified until that checklist passes).
 * Native share sheet and « Envoyer sur WhatsApp » (`https://wa.me/?text=…`) only behave for
   real on devices; the web preview copies the message instead.
-* QR: check it scans from another phone in bright and dim light at full screen brightness.
-* SecureStore holds the guest's QR token and the member's own share links; uninstalling
-  the app loses them (the guest's session too — documented MVP limitation).
+* SecureStore holds only the member's own invitation links. Guests store no secret; their
+  session (AsyncStorage) identifies the pass. Uninstalling signs a guest out (MVP limitation).
+
+### Reception check-in checklist (guest scans the printed QR)
+
+Print the station QR (`node scripts/reception/station-qr.mjs 'AFR1.…' out.svg`) in two sizes
+(≈ 8 cm and ≈ 15 cm). On at least one iPhone and one Android phone:
+
+1. « Utiliser mon Pass » › « Scanner le QR » → camera permission explained, then the OS prompt;
+   deny once → « Caméra désactivée » + « Ouvrir les réglages » works.
+2. Camera opens quickly; QR recognised at 20 cm, 50 cm and 1 m, in normal and low light.
+3. Valid QR → « PASS VALIDÉ » readable by staff at arm's length; live clock ticking.
+4. Scan again → « Pass déjà utilisé » with the time; no second redemption in the DB.
+5. Deactivated station QR → « QR désactivé »; rotated (old) QR → « QR Arena Fit invalide ».
+6. A random QR / URL / invitation link → « QR Arena Fit invalide », nothing opens.
+7. Airplane mode while scanning → « Erreur réseau »; retry online → validated (or already used).
+8. Expired pass → « Pass expiré »; guest without pass → « Aucun Pass disponible ».

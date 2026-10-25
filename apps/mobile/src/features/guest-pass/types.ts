@@ -55,13 +55,13 @@ export type GuestPass = {
   sessions: number;
   validUntil: string;
   activatedAt: string | null;
-  usedAt: string | null;
-  qrIssuedAt: string;
+  /** Set once the guest scanned the reception QR. */
+  redeemedAt: string | null;
+  stationName: string | null;
 };
 
 export type ActivationResult =
-  | { result: 'activated'; qrToken: string; pass: GuestPass }
-  | { result: 'already_active' | 'used'; pass: GuestPass }
+  | { result: 'activated' | 'already_active' | 'used'; pass: GuestPass }
   | {
       result:
         | 'expired'
@@ -84,7 +84,6 @@ export type GuestPassErrorCode =
   | 'not_found'
   | 'not_shareable'
   | 'not_cancellable'
-  | 'no_active_pass'
   | 'no_identity';
 
 export class GuestPassError extends Error {
@@ -110,5 +109,13 @@ export interface GuestPassRepository {
   // Guest identity
   activateInvitation(ref: { token?: string; code?: string }): Promise<ActivationResult>;
   getMyGuestPass(): Promise<GuestPass | null>;
-  reissueQr(): Promise<{ qrToken: string }>;
+  /** The caller's own pass, at the station identified by the scanned reception QR. */
+  redeemMyGuestPass(receptionQr: string): Promise<RedemptionResult>;
 }
+
+/** Outcome of scanning the reception QR. */
+export type RedemptionResult =
+  | { result: 'redeemed'; redeemedAt: string; stationName: string; sessions: number }
+  | { result: 'already_used'; redeemedAt: string | null; stationName: string | null }
+  | { result: 'expired'; validUntil: string | null }
+  | { result: 'no_pass' | 'invalid_qr' | 'station_inactive' | 'not_guest' };

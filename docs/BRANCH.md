@@ -60,7 +60,7 @@ Tested here (web preview + local Supabase + unit tests):
 
 * link/URL/payload validation, the Branch adapter with a simulated SDK (normal open, deferred
   first open, errors, malformed payloads),
-* the full flow on web: create → share preview → open link → preview → activate → QR, the
+* the full flow on web: create → share preview → open link → preview → activate → Guest Mode, the
   short-code fallback, re-opening a link, cancelled / expired / invalid / already-claimed states,
 * server rules (pgTAP + HTTP integration tests incl. concurrency).
 
@@ -81,7 +81,7 @@ one iPhone and one Android phone:
 2. App installed → tap link → app opens directly on the preview.
 3. Same with the alternate domain.
 4. Link opened in a browser that blocks app links → Branch fallback page → code works.
-5. Activate → QR shown; reopen the link → straight back to « Mon Pass Invité ».
+5. Activate → Guest Mode; reopen the link → straight back to « Utiliser mon Pass ».
 
 ## Note on builds without Branch
 

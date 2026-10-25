@@ -32,7 +32,7 @@ export function GuestPassHomeCard() {
           </Text>
           <Text variant="heading">
             {active
-              ? t('guestPass.invite.sessions', { count: pass.sessions })
+              ? t('guestPass.home.sessions', { count: pass.sessions })
               : pass.status === 'used'
                 ? t('guestPass.home.used')
                 : t('guestPass.home.expired')}
@@ -44,7 +44,7 @@ export function GuestPassHomeCard() {
           )}
         </View>
       </View>
-      {active && <Button label={t('guestPass.home.show')} icon="qr-code-outline" fullWidth onPress={() => router.push('/guest/pass')} />}
+      {active && <Button label={t('guestPass.home.use')} icon="scan-outline" fullWidth onPress={() => router.push('/guest/pass')} />}
     </View>
   );
 }

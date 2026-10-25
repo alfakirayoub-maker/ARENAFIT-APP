@@ -94,7 +94,7 @@ export default function ProfileScreen() {
             <Text variant="body" color="secondary" style={styles.cardBody}>
               {t('profile.guest.body')}
             </Text>
-            <Button label={t('guestPass.home.show')} icon="qr-code-outline" onPress={() => router.push('/guest/pass')} />
+            <Button label={t('guestPass.home.use')} icon="scan-outline" onPress={() => router.push('/guest/pass')} />
           </Card>
         ) : null}
       </View>

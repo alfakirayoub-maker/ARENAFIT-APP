@@ -37,9 +37,3 @@ export const shareSecrets = {
   remove: (invitationId: string) => secureKv.remove(shareSecrets.key(invitationId)).catch(() => {}),
 };
 
-/** The guest's raw QR token (returned once at activation), per guest identity. */
-export const qrTokens = {
-  key: (userId: string) => `arenafit.guest-qr.${userId}`,
-  get: (userId: string) => secureKv.get(qrTokens.key(userId)).catch(() => null),
-  save: (userId: string, token: string) => secureKv.set(qrTokens.key(userId), token).catch(() => {}),
-};

@@ -3,7 +3,8 @@
 # the Supabase CLI: PostgreSQL (database arenafit_dev) + GoTrue (real Auth,
 # anonymous sign-in enabled) + PostgREST + a small gateway. Rebuilds the
 # database from supabase/migrations + seed + dev fixtures and creates two test
-# members. Secrets are generated into .local-stack/ (git-ignored).
+# members and two reception stations (one deactivated). Secrets are generated
+# into .local-stack/ (git-ignored).
 #
 # With the Supabase CLI, `supabase start` + `supabase db reset` replaces this
 # (enable anonymous sign-ins in supabase/config.toml: [auth] enable_anonymous_sign_ins = true).
@@ -74,6 +75,18 @@ for m in "dev.member@arenafit.local:Ayoub" "test.member2@arenafit.local:Karim"; 
       select id, 'Membre test', 'test', current_date - 30 from auth.users where email = '$email';"
 done
 
+echo "▸ reception stations"
+station() { # name → qr payload
+  curl -s --noproxy '*' -X POST http://localhost:54321/rest/v1/rpc/create_reception_station -H "apikey: $SVC" \
+    -H "Authorization: Bearer $SVC" -H 'content-type: application/json' -d "{\"p_name\":\"$1\"}" |
+    node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);console.log(j.qr_payload+" "+j.station_id)})'
+}
+read -r MAIN_QR _ <<<"$(station 'Réception principale')"
+read -r OFF_QR OFF_ID <<<"$(station 'Réception test (désactivée)')"
+"${P[@]}" -d arenafit_dev -c "select public.set_reception_station_active('$OFF_ID', false)" >/dev/null
+echo "$MAIN_QR" > "$STATE/reception-qr"; echo "$OFF_QR" > "$STATE/reception-qr-inactive"
+node "$ROOT/scripts/reception/station-qr.mjs" "$MAIN_QR" "$STATE/reception-principale.svg" >/dev/null
+
 cat <<INFO
 
 ✓ local API on http://localhost:54321
@@ -82,6 +95,9 @@ cat <<INFO
     EXPO_PUBLIC_SUPABASE_ANON_KEY=$(cat "$STATE/anon-key")
     EXPO_PUBLIC_DEV_MEMBER_EMAIL=dev.member@arenafit.local
     EXPO_PUBLIC_DEV_MEMBER_PASSWORD=$PW
+    EXPO_PUBLIC_DEV_RECEPTION_QR=$MAIN_QR
+    EXPO_PUBLIC_DEV_RECEPTION_QR_INACTIVE=$OFF_QR
+  printable reception QR (local): .local-stack/reception-principale.svg
   integration tests (apps/mobile):
     SUPABASE_TEST_URL=http://localhost:54321 SUPABASE_TEST_ANON_KEY=\$(cat .local-stack/anon-key) \\
     SUPABASE_TEST_SERVICE_KEY=\$(cat .local-stack/service-key) npm test

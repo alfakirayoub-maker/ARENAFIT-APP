@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { identity } from '@/features/auth';
 import { useSession } from '@/features/session/session';
 
-import { guestPassRepository as repo, invitationLinks, qrTokens, shareSecrets } from './index';
-import { buildGuestPassQr, buildShareMessage, type InvitationRef } from './links';
+import { guestPassRepository as repo, invitationLinks, shareSecrets } from './index';
+import { buildShareMessage, type InvitationRef } from './links';
 import { shareOnWhatsApp, shareText, type ShareOutcome } from './share';
 import { GuestPassError, type ActivationResult } from './types';
 
@@ -12,7 +12,6 @@ export const guestPassKeys = {
   all: ['guest-pass'] as const,
   invitations: ['guest-pass', 'invitations'] as const,
   pass: ['guest-pass', 'pass'] as const,
-  qr: (userId: string) => ['guest-pass', 'qr', userId] as const,
   preview: (ref: InvitationRef) => ['guest-pass', 'preview', ref.kind, ref.kind === 'token' ? ref.token : ref.code] as const,
 };
 
@@ -122,7 +121,7 @@ export function useActivateInvitation() {
   return useMutation({
     mutationFn: async (ref: InvitationRef): Promise<ActivationResult> => {
       if (!identity) throw new GuestPassError('no_identity');
-      const { user, created } = await identity.ensureGuestIdentity();
+      const { created } = await identity.ensureGuestIdentity();
       let result: ActivationResult;
       try {
         result = await repo.activateInvitation(ref.kind === 'token' ? { token: ref.token } : { code: ref.code });
@@ -130,7 +129,6 @@ export function useActivateInvitation() {
         if (created) await identity.signOut().catch(() => {});
         throw e;
       }
-      if (result.result === 'activated') await qrTokens.save(user.id, result.qrToken);
       const holdsPass = result.result === 'activated' || result.result === 'already_active' || result.result === 'used';
       if (!holdsPass && created) await identity.signOut().catch(() => {});
       return result;
@@ -153,24 +151,14 @@ export function useMyGuestPass() {
 }
 
 /**
- * QR payload of the guest's active pass. The raw token lives only on this
- * device; if it is missing (new device, cleared storage) a new one is issued,
- * which revokes the previous one.
+ * « Scanner le QR »: redeems the signed-in guest's own pass at the station
+ * whose reception QR was scanned. Only the scanned payload is sent — the
+ * server identifies the guest from the session.
  */
-export function useGuestPassQr(enabled: boolean) {
-  const { session } = useSession();
-  const userId = session.kind === 'guest' ? session.userId : null;
-  return useQuery({
-    queryKey: guestPassKeys.qr(userId ?? 'none'),
-    queryFn: async () => {
-      let token = await qrTokens.get(userId!);
-      if (!token) {
-        token = (await repo.reissueQr()).qrToken;
-        await qrTokens.save(userId!, token);
-      }
-      return buildGuestPassQr(token);
-    },
-    enabled: enabled && userId !== null,
-    staleTime: Infinity,
+export function useRedeemGuestPass() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (receptionQr: string) => repo.redeemMyGuestPass(receptionQr),
+    onSettled: () => qc.invalidateQueries({ queryKey: guestPassKeys.pass }),
   });
 }

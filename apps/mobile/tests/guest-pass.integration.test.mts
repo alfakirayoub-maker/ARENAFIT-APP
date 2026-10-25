@@ -7,7 +7,8 @@
  *   SUPABASE_TEST_SERVICE_KEY=… npm test
  *
  * The service-role key is used ONLY by this test harness, to create fresh test
- * members and to simulate time passing (expiry). The app never has it.
+ * members, reception stations, and to simulate time passing (expiry). The app
+ * never has it.
  * Skipped when the variables are not set.
  */
 import assert from 'node:assert/strict';
@@ -129,12 +130,9 @@ describe('Guest Pass (integration)', { skip }, () => {
       g.repo.activateInvitation({ token: inv.shareToken }),
     ]);
     assert.deepEqual(results.map((r) => r.result).sort(), ['activated', 'already_active']);
-    const activated = results.find((r) => r.result === 'activated')!;
-    assert.ok('qrToken' in activated && activated.qrToken !== inv.shareToken, 'QR token differs from the share token');
 
     const again = await g.repo.activateInvitation({ code: inv.shortCode.toLowerCase().replaceAll('-', '') });
     assert.equal(again.result, 'already_active', 'the code resolves the same invitation');
-    assert.ok(!('qrToken' in again), 'no second QR token');
     const { count } = await admin().from('guest_passes').select('id', { count: 'exact', head: true }).eq('invitation_id', inv.invitationId);
     assert.equal(count, 1);
 
@@ -210,7 +208,6 @@ describe('Guest Pass (integration)', { skip }, () => {
     const g2 = await guest();
     assert.deepEqual((await g2.client.from('guest_passes').select('id')).data, [], 'a guest does not see another guest’s pass');
     assert.equal(await g2.repo.getMyGuestPass(), null);
-    assert.equal((await g1.client.from('guest_passes').select('qr_token_hash')).error?.code, '42501');
     await rejectsWith(g1.repo.createInvitation('x'), 'not_eligible');
     assert.equal((await owner.repo.activateInvitation({ token: inv.shareToken })).result, 'not_eligible');
   });
@@ -221,5 +218,98 @@ describe('Guest Pass (integration)', { skip }, () => {
     const probe = await visitor.repo.previewInvitation({ code: 'AF-2345-6789' });
     assert.ok(probe.result === 'invalid' || probe.result === 'rate_limited');
     assert.equal(probe.inviterName, null);
+  });
+});
+
+describe('Reception check-in: guest scans the station QR (integration)', { skip }, () => {
+  /** Station created like Arena Fit would (service role); returns the printed QR payload. */
+  async function station(name: string, active = true) {
+    const svc = admin();
+    const { data, error } = await svc.rpc('create_reception_station', { p_name: name });
+    assert.equal(error, null);
+    const st = data as { station_id: string; qr_payload: string };
+    if (!active) assert.equal((await svc.rpc('set_reception_station_active', { p_station_id: st.station_id, p_active: false })).error, null);
+    return st;
+  }
+
+  /** A guest holding an activated pass. */
+  async function guestWithPass() {
+    const member = await newMember('Hôte');
+    const inv = await member.repo.createInvitation(null);
+    const g = await guest();
+    assert.equal((await g.repo.activateInvitation({ token: inv.shareToken })).result, 'activated');
+    return { ...g, inv };
+  }
+
+  it('valid guest + valid reception QR → redeemed once; scanning again → already used with the time', async () => {
+    const st = await station(`Réception ${randomUUID().slice(0, 6)}`);
+    const g = await guestWithPass();
+    const first = await g.repo.redeemMyGuestPass(st.qr_payload);
+    assert.equal(first.result, 'redeemed');
+    const again = await g.repo.redeemMyGuestPass(st.qr_payload);
+    assert.equal(again.result, 'already_used');
+    assert.ok(first.result === 'redeemed' && again.result === 'already_used' && again.redeemedAt === first.redeemedAt);
+    const pass = await g.repo.getMyGuestPass();
+    assert.equal(pass?.status, 'used');
+    assert.equal(pass?.redeemedAt, first.result === 'redeemed' ? first.redeemedAt : null);
+  });
+
+  it('two simultaneous scans by the same guest use the pass ONCE', async () => {
+    const st = await station(`Réception ${randomUUID().slice(0, 6)}`);
+    const g = await guestWithPass();
+    const results = await Promise.all(Array.from({ length: 4 }, () => g.repo.redeemMyGuestPass(st.qr_payload)));
+    assert.deepEqual(results.map((r) => r.result).sort(), ['already_used', 'already_used', 'already_used', 'redeemed']);
+    const { count } = await admin().from('guest_redemptions').select('id', { count: 'exact', head: true }).eq('guest_profile_id', g.user.id);
+    assert.equal(count, 1);
+  });
+
+  it('refuses: no pass, expired pass, invalid / inactive / malformed / URL QR, members and visitors', async () => {
+    const st = await station(`Réception ${randomUUID().slice(0, 6)}`);
+    const off = await station(`Réception fermée ${randomUUID().slice(0, 6)}`, false);
+
+    const noPass = await guest();
+    assert.equal((await noPass.repo.redeemMyGuestPass(st.qr_payload)).result, 'no_pass');
+
+    const g = await guestWithPass();
+    for (const bad of ['hello', 'https://example.com/promo', `AFR1.${'A'.repeat(43)}`, `http://localhost/invite/${g.inv.shareToken}`]) {
+      assert.equal((await g.repo.redeemMyGuestPass(bad)).result, 'invalid_qr', bad);
+    }
+    assert.equal((await g.repo.redeemMyGuestPass(off.qr_payload)).result, 'station_inactive');
+    assert.equal((await g.repo.getMyGuestPass())?.status, 'activated', 'refused scans leave the pass unused');
+
+    const expiring = await guestWithPass();
+    await admin().from('guest_invitations').update({ expires_at: new Date(Date.now() - 60_000).toISOString() }).eq('id', expiring.inv.invitationId);
+    assert.equal((await expiring.repo.redeemMyGuestPass(st.qr_payload)).result, 'expired');
+
+    const member = await newMember('Membre');
+    assert.equal((await member.repo.redeemMyGuestPass(st.qr_payload)).result, 'not_guest');
+
+    const anon = createPublicClient(url!, anonKey!);
+    assert.equal((await anon.rpc('redeem_my_guest_pass', { p_reception_qr: st.qr_payload })).error?.code, '42501');
+  });
+
+  it('a guest cannot redeem another guest’s pass (identity comes from the session only)', async () => {
+    const st = await station(`Réception ${randomUUID().slice(0, 6)}`);
+    const owner = await guestWithPass();
+    const other = await guest();
+    // There is no parameter to name a pass or a guest: the other guest only ever reaches their own (none).
+    assert.equal((await other.repo.redeemMyGuestPass(st.qr_payload)).result, 'no_pass');
+    assert.equal((await owner.repo.getMyGuestPass())?.status, 'activated');
+  });
+
+  it('station tokens: hash only, unreadable through the API, rotation revokes the old QR', async () => {
+    const st = await station(`Réception ${randomUUID().slice(0, 6)}`);
+    const g = await guestWithPass();
+    assert.equal((await g.client.from('reception_stations').select('token_hash')).error?.code, '42501');
+    assert.equal((await createPublicClient(url!, anonKey!).from('reception_stations').select('*')).error?.code, '42501');
+    assert.ok((await g.client.rpc('rotate_reception_station_token', { p_station_id: st.station_id })).error, 'apps cannot rotate');
+
+    const { data: row } = await admin().from('reception_stations').select('token_hash').eq('id', st.station_id).single();
+    assert.notEqual(row!.token_hash, `\\x${Buffer.from(st.qr_payload.slice(5)).toString('hex')}`, 'raw token not stored');
+
+    const rotated = (await admin().rpc('rotate_reception_station_token', { p_station_id: st.station_id })).data as { qr_payload: string };
+    assert.notEqual(rotated.qr_payload, st.qr_payload);
+    assert.equal((await g.repo.redeemMyGuestPass(st.qr_payload)).result, 'invalid_qr', 'old QR rejected after rotation');
+    assert.equal((await g.repo.redeemMyGuestPass(rotated.qr_payload)).result, 'redeemed', 'new QR works after rotation');
   });
 });

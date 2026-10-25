@@ -18,7 +18,7 @@ document only covers how the product is built.
 ┌──────────────────────────────────────────────────────────┐
 │ Supabase                                                 │
 │  Postgres (RLS on every table) · Auth · Storage          │
-│  SECURITY DEFINER RPCs: guest invitations, QR checks     │
+│  SECURITY DEFINER RPCs: guest invitations, check-in      │
 │  Edge Functions: push fan-out (Expo Push API)            │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -41,7 +41,7 @@ document only covers how the product is built.
 | i18n | i18next + react-i18next + expo-localization. FR is the source, AR/EN typed against it |
 | Data | UI → query hooks (`src/data/queries.ts`, TanStack Query) → `ContentRepository` interface → Supabase repository (`src/data/supabase/`, anon key, rows validated with Zod). Dev-only fixture repository when Supabase isn't configured (`src/data/source.ts`). See §7 |
 | Local state | AsyncStorage-backed stores (`src/lib/persisted-store.ts`) for favorites, reminders and notification preferences. No account needed |
-| Session (Sprint 5) | One session-capable Supabase client (`src/features/auth/`), anon key only. Auth session persisted in AsyncStorage; Guest Pass secrets (QR token, member's own share links) in `expo-secure-store`. No user exists until « Activer mon Pass » (guest) or a member signs in |
+| Session (Sprint 5) | One session-capable Supabase client (`src/features/auth/`), anon key only. Auth session persisted in AsyncStorage; the member's own invitation links in `expo-secure-store`. Guests keep nothing but their session. No user exists until « Activer mon Pass » (guest) or a member signs in |
 | Config | `src/config/env.ts`: `EXPO_PUBLIC_*` variables (Branch key + domains, invite base URL, Supabase). See `.env.example`. `app.config.ts` adds the Branch plugin, associated domains and Android app links only when they are set |
 | Notifications (Sprint 4) | `expo-notifications`: local reminders + Expo push tokens |
 
@@ -62,7 +62,7 @@ apps/mobile/
       classes/[id].tsx  activities/[slug].tsx  coaches/[slug].tsx  news/[slug].tsx
       pass/index.tsx  pass/offer.tsx  pass/[id].tsx   Pass & Invitations, Offrir un Pass, invitation detail (members)
       invite/[token].tsx  invite/code.tsx              invitation preview + activation, short-code fallback
-      guest/pass.tsx    Mon Pass Invité (QR)
+      guest/pass.tsx  guest/scan.tsx   « Utiliser mon Pass » (how to), scanner + PASS VALIDÉ
       +native-intent.tsx  validates every incoming URL (invitation links)
       settings/notifications.tsx  settings/account.tsx  help.tsx  login.tsx
       dev/ui.tsx        design-system gallery (dev builds only)
@@ -169,7 +169,7 @@ Changes from the suggested entity list, and why:
 * `members`-visibility sessions need `is_member()`. Admin writes need `is_admin()`.
 * Guest tables have **no client write policies**. Every mutation goes through
   `SECURITY DEFINER` RPCs that validate state transitions.
-* Tokens: link and QR tokens are 256-bit random values. Only `sha256(token)` is stored.
+* Tokens: invitation link and reception station tokens are 256-bit random values. Only `sha256(token)` is stored.
 
 ### Identity model
 
@@ -188,9 +188,8 @@ Changes from the suggested entity list, and why:
 
 ### Guest-pass flow
 
-Implemented in Sprint 5 (invitation → share → activation → QR) — see §9. Sprint 6 adds
-reception scanning: `check_guest_pass(qr)` (read-only verdict) and `redeem_guest_pass(qr)`
-(inserts into `guest_redemptions`, unique per pass, sets `used`).
+Implemented in Sprint 5 (invitation → share → activation → guest scans the reception QR →
+redemption) — see §9. There is no reception-side scanner.
 
 ## 5. Phased plan
 
@@ -200,8 +199,8 @@ reception scanning: `check_guest_pass(qr)` (read-only verdict) and `redeem_guest
 | 2 ✅ | Home, Planning (week selector + filters), Class detail, Activities, Coaches, News list/detail, Profile, Pass & Invitations UI, local reminders/favorites. Dev fixtures based on the real roster | All screens navigable with realistic data, plus loading, empty and error states |
 | 3 ✅ | Supabase repositories for coaches, activities, planning and news (no login), controlled club clock, image storage, pgTAP RLS/seed/clock tests, cache strategy, release-bundle check | App runs against Supabase as a visitor, RLS verified in SQL and over HTTP |
 | 4 ✅ | Native local reminders (15/30/60/120 min) via a platform-independent ReminderService, contextual permission UX, reconciliation with the live planning, notification tap routing, Android channel + monochrome icon, notification preferences, push interface (not wired), EAS dev-build profiles | Logic covered by tests; device behaviour per docs/DEV_BUILD.md checklist |
-| 5 ✅ | Guest-pass server operations, offer/share flow, InvitationLinkService (Branch + local), short-code fallback, invitation states, cancellation/expiry, Guest Mode, Guest Pass QR | End-to-end on web against local Supabase; Branch/device checks listed in docs/BRANCH.md |
-| 6 | Admin app scaffold and auth, `/reception/scanner`, check/redeem RPCs | A pass can't be redeemed twice. All verdict screens done |
+| 5 ✅ | Guest-pass server operations, offer/share flow, InvitationLinkService (Branch + local), short-code fallback, invitation states, cancellation/expiry, Guest Mode, guest check-in by scanning the reception QR | End-to-end on web against local Supabase; Branch/device checks listed in docs/BRANCH.md |
+| 6 | Guest reception check-in hardening, native scanner quality, reception station management backend, real-device validation | Checklist in docs/DEV_BUILD.md passes on iPhone + Android |
 | 7 | Admin CRUD: planning (duplicate session/week), coaches (photo upload), activities, news (publish/unpublish), notifications, members, guest passes, settings | Admin changes show up in the app |
 | 8 | Tests (RLS/pgTAP, RPC, component), error boundaries, performance, a11y pass, security review, EAS builds | Release candidates for Android and iOS |
 
@@ -326,7 +325,7 @@ UI (ReminderSheet, ClassCard, Class Details, settings)
 ### Lifecycle
 
 ```
-[available] ─create──▶ sent ──activate──▶ activated ──(Sprint 6 reception)──▶ used ──(later)──▶ converted
+[available] ─create──▶ sent ──activate──▶ activated ──guest scans reception QR──▶ used ──(later)──▶ converted
                │            │                 │
                │            ├─cancel─▶ cancelled      (pass returned to the balance)
                │            └─expiry─▶ expired ◀──────┘  (unused at expires_at: pass returned)
@@ -348,8 +347,10 @@ Extends the Sprint 1 tables rather than duplicating them:
 | --- | --- |
 | `guest_pass_balances.allowance` | passes granted (default from `guest_pass.default_allowance`, row created lazily for eligible members) |
 | `guest_invitations` + `short_code_hash`, `expires_at`, `pass_returned`, `used_at`, `expired_at`, `last_shared_at`, `link_rotated_at` | one row per offered pass; hashes of the share token and short code; timestamps per state; DB checks tie states to timestamps |
-| `guest_passes.qr_token_hash`, `qr_issued_at` | the activated pass and the hash of its QR redemption token |
-| `guest_pass_events` | `gift_created, gift_shared, link_rotated, invitation_opened, gift_activated, gift_cancelled, gift_expired, qr_reissued` — funnel created→activated→used→converted is computable from events + timestamps |
+| `guest_passes` | the activated pass (guest, sessions, valid until) — no secret: the guest's session identifies it |
+| `reception_stations` | `name`, `token_hash` (unique), `active`, `last_rotated_at` — one per printed reception QR; more can be added without app changes |
+| `guest_redemptions` | one row per used pass (`unique(guest_pass_id)`), `guest_profile_id`, `reception_station_id`, `redeemed_at` |
+| `guest_pass_events` | `gift_created, gift_shared, link_rotated, invitation_opened, gift_activated, gift_cancelled, gift_expired, reception_qr_scanned, guest_pass_redeemed` (+ station) — funnel created→activated→used→converted is computable |
 | `guest_code_attempts` | failed short-code lookups (rate limiting) |
 | `profiles.show_name_on_invitations` | whether the inviter's first name appears on previews |
 | `app_settings` | `guest_pass.invitation_validity_days` (15), `sessions_per_pass` (1), `refund_expired_unused` (true), `daily_invitation_limit` (10), `code_attempts_limit` (10) / `code_attempts_window_minutes` (15) |
@@ -364,8 +365,10 @@ Extends the Sprint 1 tables rather than duplicating them:
 | `record_guest_invitation_shared(id)` | member | share-sheet completed (analytics) |
 | `cancel_guest_invitation(id)` | member, `sent` only | cancels and returns the pass atomically |
 | `preview_guest_invitation(token, code)` | anon + authenticated | public preview by secret only: result + inviter first name (if allowed) + sessions + date. No ids, no invitee data |
-| `activate_guest_invitation(token, code)` | guest identity | `FOR UPDATE` on the invitation; idempotent: same guest → existing pass (no new QR token), other guest → `already_claimed`; members/inviter refused; one active pass per guest |
-| `get_my_guest_pass()` / `reissue_guest_pass_qr()` | guest | current pass; new QR token (old one revoked) when the device lost it |
+| `activate_guest_invitation(token, code)` | guest identity | locks guest + invitation; idempotent: same guest → existing pass, other guest → `already_claimed`; members/inviter refused; one active pass per guest |
+| `get_my_guest_pass()` | guest | current pass (active first), with redemption time + station once used |
+| `redeem_my_guest_pass(reception_qr)` | guest | check-in, see below |
+| `create_reception_station(name)` / `rotate_reception_station_token(id)` / `set_reception_station_active(id, bool)` | **service_role only** | returns the printable `AFR1.<token>` once; rotation revokes the old print |
 | `expire_guest_invitations()` | **service_role only** | scheduled job; idempotent |
 
 `EXECUTE` is revoked from `public/anon/authenticated` and granted per function. Expiry is also
@@ -376,30 +379,61 @@ applied lazily by every operation, so correctness never depends on the job.
 dashboard and run:
 `select cron.schedule('expire-guest-invitations', '*/15 * * * *', 'select public.expire_guest_invitations()');`
 
+### Reception check-in (the guest scans; reception needs no device)
+
+```
+Guest Mode › « Utiliser mon Pass » › « Scanner le QR » › camera › printed reception QR (AFR1.<station token>)
+   → redeem_my_guest_pass(qr)   [session = the guest; no guest/pass id is ever sent]
+   → PASS VALIDÉ · Bienvenue chez Arena Fit · Séance invitée · date · heure · station (live clock)
+```
+
+`redeem_my_guest_pass` runs in one transaction: caller must be a guest identity → lock the
+guest's profile row (concurrent scans queue) → QR must match `^AFR1\.[A-Za-z0-9_-]{43}$` →
+station found by token hash → station active → the guest's pass (active first) locked → not
+expired (expires it if due) → not already used (`already_used` + original time) → insert
+`guest_redemptions` (unique per pass) + status `used` + `used_at` → events
+`reception_qr_scanned` and `guest_pass_redeemed`. Results: `redeemed | already_used | expired |
+no_pass | invalid_qr | station_inactive | not_guest`.
+
+**Security model.** The reception QR proves nothing about access — only that the request came
+from someone who saw that printed code. A visit needs all three: a valid active station QR +
+the authenticated guest session + that guest's own active, unused pass. The app validates the
+QR shape before calling the server and never opens a scanned URL.
+
+**Known MVP limitation (static QR).** A photo of the printed QR could be scanned away from the
+club. Impact is limited: it still needs a guest identity holding an active one-use pass, and
+burns that pass. No GPS/geofencing or rotating QR now; `rotate_reception_station_token` and
+per-station `active` allow rotation (e.g. monthly, or after a leak) without app changes.
+
+**Printing.** `select public.create_reception_station('Réception principale');` (or
+`rotate_reception_station_token`) in the Supabase SQL editor → copy `qr_payload` (shown once)
+→ `node scripts/reception/station-qr.mjs 'AFR1.…' reception.svg` → print ≥ 8 cm wide.
+
 ### Secrets
 
 | Secret | Generated | Stored server-side | Where the raw value lives |
 | --- | --- | --- | --- |
 | Share token (link) | server, 256-bit, base64url | `sha256` only | the share message; the member's device (SecureStore) |
 | Short code `AF-XXXX-XXXX` | server, 8 chars from a 31-char alphabet without look-alikes (≈39.6 bits, rejection sampling) | `sha256` of the normalised code | share screen / invitation detail of the member |
-| QR redemption token | server at activation, 256-bit | `sha256` only | guest device (SecureStore; localStorage in the web preview) |
+| Station token | server (create / rotate), 256-bit | `sha256` only | the printed QR only |
 
-QR payload: `AFG1.<token>` — opaque, versioned, no member/guest data. **Known MVP limitation:**
-the QR is stable for the life of the pass, so a screenshot or forwarded image works until it is
-redeemed once (Sprint 6 makes redemption single-use). No rotating QR.
+The guest stores **no secret**: the persisted auth session is enough to find and redeem their
+pass (the removed guest-QR token is gone with its storage). Uninstalling still signs the guest
+out (anonymous identity), which is the remaining device-loss limitation.
 
 **Enumeration / abuse.** Ids grant nothing (all reads by secret through functions; hashes are
 not selectable through column grants). Failed short-code lookups are rate limited per client
 (user id, else `x-forwarded-for` from the Supabase gateway): 10 failures / 15 min. With ~2^39.6
-codes, guessing a live code is impractical. Local limits: the local stack's gateway sets the
-forwarded address itself; on Supabase the header comes from its API gateway. Add an edge
-rate limit (e.g. Cloudflare / Supabase API rate limits) before launch for defence in depth.
+codes, guessing a live code is impractical. Station tokens are 256-bit. Local limits: the local
+stack's gateway sets the forwarded address itself; on Supabase the header comes from its API
+gateway. Add an edge rate limit before launch for defence in depth.
 
 ### Access control (RLS + grants)
 
 * anon: no access to any guest table (permission denied), only `preview_guest_invitation`.
 * members: read their own invitations/balance (no hash columns); no writes.
-* guests: read their own pass (no hash column); no writes.
+* guests: read their own pass; no writes; redeem only their own pass through `redeem_my_guest_pass`.
+* `reception_stations`: no client access at all (permission denied); managed by service role.
 * staff (`is_staff`) can read for support; admin UI comes later.
 
 ### App
@@ -407,7 +441,8 @@ rate limit (e.g. Cloudflare / Supabase API rate limits) before launch for defenc
 ```
 src/features/auth/        IdentityService (only caller of Supabase Auth), session client, member profile
 src/features/guest-pass/  types, Supabase repository (RPC + Zod), hooks (TanStack),
-                          links.ts (pure validation: tokens, codes, Branch payloads, URLs, QR),
+                          links.ts (pure validation: tokens, codes, Branch payloads, URLs, reception QR),
+                          scanner/ReceptionScanner(.web).tsx (expo-camera, QR only / web stand-in),
                           link-service.ts (InvitationLinkService: Branch + local adapters),
                           link-runtime(.web).ts (composition), share(.web).ts, components/
 src/app/+native-intent.tsx  every incoming URL → validated app path
@@ -418,15 +453,19 @@ src/app/+native-intent.tsx  every incoming URL → validated app path
 * Expo Router stays the navigation source of truth: link adapters only report validated
   invitations; `InvitationLinkListener` pushes `/invite/<token>`.
 * Guest Mode: Accueil starts with « Votre Pass Arena Fit » then the normal content; Profil
-  shows « Mon Pass Invité » and « Quitter le mode invité ». Member-only routes (`/pass*`)
+  shows « Mon Pass Invité » and « Quitter le mode invité ». The scanner is reachable only in
+  Guest Mode with an activated pass; dev builds add a scan simulator (`src/dev/ScanSimulator.tsx`,
+  excluded from release) injecting valid / deactivated / invalid / URL payloads. Member-only routes (`/pass*`)
   redirect; no subscription, sending, rewards or admin for guests.
 * Release bundles: `npm run check:release` fails on dev fixtures, the demo/test member, dev
-  credentials, test tokens, Branch test keys or the service-role key.
+  credentials, dev reception QR payloads, the scan simulator, test tokens, Branch test keys or
+  the service-role key.
 
 ### Local stack & tests
 
 * `scripts/local-stack/up.sh`: PostgreSQL + GoTrue (real anonymous sign-in) + PostgREST + gateway
-  on :54321, test members, secrets in `.local-stack/` (git-ignored).
-* `supabase/tests/guest_pass.test.sql` (pgTAP, 69 checks) and
+  on :54321, test members, an active and a deactivated reception station, a printable SVG of the
+  local reception QR; secrets in `.local-stack/` (git-ignored).
+* `supabase/tests/guest_pass.test.sql` (pgTAP, 96 checks incl. check-in and rotation) and
   `apps/mobile/tests/guest-pass.integration.test.mts` (real API: concurrency, idempotency,
   RLS), `apps/mobile/tests/guest-pass-links.test.mts` (payload/URL validation).

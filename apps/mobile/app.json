@@ -45,7 +45,16 @@
           "defaultChannel": "class-reminders"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Arena Fit utilise la caméra uniquement pour scanner le QR affiché à la réception et valider votre Pass Invité.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

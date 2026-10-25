@@ -8,7 +8,7 @@
 --     changes; absolute instants are derived with club_instant() when needed
 --     (reminders, push scheduling).
 --   * Every table has created_at / updated_at (updated_at maintained by trigger).
---   * Secrets (invitation link tokens, QR tokens) are NEVER stored in clear:
+--   * Secrets (invitation link tokens, reception station tokens) are NEVER stored in clear:
 --     only their SHA-256 hash. The raw token is returned once by an RPC.
 --   * Content that may need translation (activities, news, coaches) keeps the
 --     French source in typed columns and optional translations in `i18n` jsonb:
@@ -388,11 +388,11 @@ create table public.app_settings (
 -- -----------------------------------------------------------------------------
 -- Guest passes
 --
---   balance (allowance)  ──<  invitation (share link)  ──1:1──  pass (QR)  ──1:1── redemption
+--   balance (allowance)  ──<  invitation (share link)  ──1:1──  pass  ──1:1── redemption
 --
--- The share-link token and the QR token are different secrets: a forwarded
--- WhatsApp link can activate a pass once, but never gets anyone through
--- reception on its own.
+-- A forwarded WhatsApp link can activate a pass once (bound to the guest
+-- identity that activated it). Redemption (the guest scanning the reception
+-- QR) and the reception stations are defined in the Guest Pass migration.
 -- -----------------------------------------------------------------------------
 
 create table public.guest_pass_balances (
@@ -424,48 +424,12 @@ create table public.guest_passes (
   id uuid primary key default gen_random_uuid(),
   invitation_id uuid not null unique references public.guest_invitations (id) on delete cascade,
   guest_profile_id uuid not null references public.profiles (id) on delete cascade,
-  qr_token_hash bytea not null unique,
   sessions_allowed smallint not null default 1 check (sessions_allowed > 0),
   valid_until timestamptz not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create index guest_passes_guest_idx on public.guest_passes (guest_profile_id);
-
--- unique(guest_pass_id) is the database-level guarantee that a pass cannot
--- be redeemed twice, even under concurrent scans.
-create table public.guest_redemptions (
-  id uuid primary key default gen_random_uuid(),
-  guest_pass_id uuid not null unique references public.guest_passes (id) on delete restrict,
-  redeemed_at timestamptz not null default now(),
-  redeemed_by uuid not null references auth.users (id) on delete restrict,
-  note text,
-  created_at timestamptz not null default now()
-);
-
--- Passes still available to offer = allowance − invitations that consume one.
--- Whether expired-and-never-activated invitations give the pass back is a
--- setting ('guest_pass.refund_expired_unactivated').
-create view public.guest_pass_availability
-with (security_invoker = true)
-as
-select
-  b.member_id,
-  b.allowance,
-  b.allowance - count(i.id) filter (
-    where i.status <> 'cancelled'
-      and not (
-        i.status = 'expired'
-        and i.activated_at is null
-        and coalesce(
-          (select (s.value)::boolean from public.app_settings s
-            where s.key = 'guest_pass.refund_expired_unactivated'),
-          true)
-      )
-  ) as available
-from public.guest_pass_balances b
-left join public.guest_invitations i on i.inviter_id = b.member_id
-group by b.member_id, b.allowance;
 
 -- -----------------------------------------------------------------------------
 -- Triggers
@@ -514,7 +478,6 @@ alter table public.notifications enable row level security;
 alter table public.guest_pass_balances enable row level security;
 alter table public.guest_invitations enable row level security;
 alter table public.guest_passes enable row level security;
-alter table public.guest_redemptions enable row level security;
 alter table public.app_settings enable row level security;
 
 -- Profiles: own row only; admins read/manage all. Users may only edit
@@ -607,9 +570,6 @@ create policy "guest_invitations: read involved" on public.guest_invitations
 
 create policy "guest_passes: read own" on public.guest_passes
   for select to authenticated using (guest_profile_id = (select auth.uid()) or public.is_staff());
-
-create policy "guest_redemptions: staff read" on public.guest_redemptions
-  for select to authenticated using (public.is_staff());
 
 create policy "app_settings: read public" on public.app_settings
   for select to anon, authenticated using (is_public or public.is_admin());

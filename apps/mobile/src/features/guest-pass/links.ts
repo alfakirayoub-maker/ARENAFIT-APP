@@ -123,18 +123,17 @@ function safeAppPath(path: string): string {
 }
 
 /**
- * QR content for a Guest Pass: an opaque, versioned token — no member or guest
- * data. Sprint 6's reception scanner parses it with parseGuestPassQr().
+ * Arena Fit reception QR: `AFR1.<station token>`, printed at the reception.
+ * Scanned by the GUEST's phone; the server redeems that guest's pass. Only
+ * this exact shape is accepted — URLs (including invitation links), random
+ * QR codes and malformed strings are rejected locally and never opened.
  */
-export const QR_PREFIX = 'AFG1.';
+export const RECEPTION_QR_PREFIX = 'AFR1.';
 
-export function buildGuestPassQr(qrToken: string): string {
-  if (!isShareToken(qrToken)) throw new Error('Invalid QR token');
-  return `${QR_PREFIX}${qrToken}`;
-}
-
-export function parseGuestPassQr(payload: string): string | null {
-  if (!payload.startsWith(QR_PREFIX)) return null;
-  const token = payload.slice(QR_PREFIX.length);
-  return isShareToken(token) ? token : null;
+export function parseReceptionQr(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim();
+  if (!value.startsWith(RECEPTION_QR_PREFIX)) return null;
+  const token = value.slice(RECEPTION_QR_PREFIX.length);
+  return isShareToken(token) ? value : null;
 }

@@ -11,6 +11,7 @@ import {
   type GuestPassRepository,
   type Invitation,
   type InvitationPreview,
+  type RedemptionResult,
 } from './types';
 
 const status = z.enum(['sent', 'activated', 'used', 'expired', 'cancelled', 'converted']);
@@ -41,8 +42,8 @@ const passRow = z.object({
   sessions: z.number().int(),
   valid_until: instant,
   activated_at: instant.nullable(),
-  used_at: instant.nullable(),
-  qr_issued_at: instant,
+  redeemed_at: instant.nullable(),
+  station_name: z.string().nullable(),
 });
 
 const previewRow = z.object({
@@ -53,8 +54,7 @@ const previewRow = z.object({
 });
 
 const activationRow = z.discriminatedUnion('result', [
-  z.object({ result: z.literal('activated'), qr_token: token, pass: passRow }),
-  z.object({ result: z.enum(['already_active', 'used']), pass: passRow }),
+  z.object({ result: z.enum(['activated', 'already_active', 'used']), pass: passRow }),
   z.object({
     result: z.enum([
       'expired',
@@ -78,8 +78,14 @@ const ERROR_CODES: readonly GuestPassErrorCode[] = [
   'not_found',
   'not_shareable',
   'not_cancellable',
-  'no_active_pass',
 ];
+
+const redemptionRow = z.discriminatedUnion('result', [
+  z.object({ result: z.literal('redeemed'), redeemed_at: instant, station_name: z.string(), sessions: z.number().int() }),
+  z.object({ result: z.literal('already_used'), redeemed_at: instant.nullable(), station_name: z.string().nullable().optional() }),
+  z.object({ result: z.literal('expired'), valid_until: instant.nullable().optional() }),
+  z.object({ result: z.enum(['no_pass', 'invalid_qr', 'station_inactive', 'not_guest']) }),
+]);
 
 type RpcResult = { data: unknown; error: PostgrestError | null; status: number };
 
@@ -128,8 +134,8 @@ const toPass = (r: z.infer<typeof passRow>): GuestPass => ({
   sessions: r.sessions,
   validUntil: r.valid_until,
   activatedAt: r.activated_at,
-  usedAt: r.used_at,
-  qrIssuedAt: r.qr_issued_at,
+  redeemedAt: r.redeemed_at,
+  stationName: r.station_name,
 });
 
 const refArgs = (ref: { token?: string; code?: string }) => ({ p_token: ref.token ?? null, p_code: ref.code ?? null });
@@ -186,8 +192,7 @@ export function createSupabaseGuestPassRepository(client: SupabaseClient): Guest
 
     async activateInvitation(ref): Promise<ActivationResult> {
       const r = await call(activationRow, client.rpc('activate_guest_invitation', refArgs(ref)));
-      if (r.result === 'activated') return { result: r.result, qrToken: r.qr_token, pass: toPass(r.pass) };
-      if (r.result === 'already_active' || r.result === 'used') return { result: r.result, pass: toPass(r.pass) };
+      if ('pass' in r) return { result: r.result, pass: toPass(r.pass) };
       return { result: r.result };
     },
 
@@ -196,9 +201,18 @@ export function createSupabaseGuestPassRepository(client: SupabaseClient): Guest
       return r ? toPass(r) : null;
     },
 
-    async reissueQr() {
-      const r = await call(z.object({ qr_token: token }), client.rpc('reissue_guest_pass_qr'));
-      return { qrToken: r.qr_token };
+    async redeemMyGuestPass(receptionQr): Promise<RedemptionResult> {
+      const r = await call(redemptionRow, client.rpc('redeem_my_guest_pass', { p_reception_qr: receptionQr }));
+      switch (r.result) {
+        case 'redeemed':
+          return { result: r.result, redeemedAt: r.redeemed_at, stationName: r.station_name, sessions: r.sessions };
+        case 'already_used':
+          return { result: r.result, redeemedAt: r.redeemed_at, stationName: r.station_name ?? null };
+        case 'expired':
+          return { result: r.result, validUntil: r.valid_until ?? null };
+        default:
+          return { result: r.result };
+      }
     },
   };
 }

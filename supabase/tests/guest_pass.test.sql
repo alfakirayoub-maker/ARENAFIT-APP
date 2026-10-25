@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(69);
+select plan(96);
 
 -- ---------------------------------------------------------------------------
 -- People (as table owner)
@@ -15,7 +15,8 @@ insert into auth.users (id) values
   ('00000000-0000-0000-0000-0000000000b2'),  -- another member
   ('00000000-0000-0000-0000-0000000000b3'),  -- member profile without an active membership
   ('00000000-0000-0000-0000-0000000000c1'),  -- guest identity 1
-  ('00000000-0000-0000-0000-0000000000c2');  -- guest identity 2
+  ('00000000-0000-0000-0000-0000000000c2'),  -- guest identity 2
+  ('00000000-0000-0000-0000-0000000000c3');  -- guest identity 3 (pass expires)
 update profiles set kind = 'member' where id in (
   '00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-0000000000b3');
 update profiles set first_name = 'Ayoub' where id = '00000000-0000-0000-0000-0000000000b1';
@@ -110,27 +111,22 @@ select throws_ok($$ select activate_guest_invitation(pg_temp.v('i1') ->> 'share_
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000c1');
 insert into t values ('a1', activate_guest_invitation(pg_temp.v('i1') ->> 'share_token', null));
 select is(pg_temp.v('a1') ->> 'result', 'activated', 'guest activates the invitation');
-select ok((pg_temp.v('a1') ->> 'qr_token') is not null and (pg_temp.v('a1') ->> 'qr_token') <> (pg_temp.v('i1') ->> 'share_token'),
-  'QR token differs from the share token');
+select ok(not (pg_temp.v('a1') ? 'qr_token'), 'activation hands out no guest QR secret');
 select is(pg_temp.v('a1') #>> '{pass,status}', 'activated', 'the guest pass is returned with the activation');
 select is(activate_guest_invitation(pg_temp.v('i1') ->> 'share_token', null) ->> 'result', 'already_active',
   'same guest opening the link again gets the existing pass');
 select is(activate_guest_invitation(null, pg_temp.v('i1') ->> 'short_code') ->> 'result', 'already_active',
   'the fallback code resolves the same invitation');
-select ok(activate_guest_invitation(pg_temp.v('i1') ->> 'share_token', null) -> 'qr_token' is null,
-  'repeat activation does not hand out a new QR token');
 select is(preview_guest_invitation(pg_temp.v('i1') ->> 'share_token', null) ->> 'result', 'yours', 'preview recognises the owner');
 select is(get_my_guest_pass() ->> 'status', 'activated', 'guest reads their current pass');
 select is(get_my_guest_pass() ->> 'inviter_name', 'Ayoub', 'pass shows who offered it');
 select is((select count(*) from guest_passes)::int, 1, 'guest sees their own pass row');
-select throws_ok($$ select qr_token_hash from guest_passes $$, '42501', null, 'QR hashes are not readable through the API');
 select is(activate_guest_invitation(pg_temp.v('i2') ->> 'share_token', null) ->> 'result', 'has_active_pass',
   'one active pass per guest identity');
 
 reset role;
 select is((select count(*) from guest_passes where invitation_id = (pg_temp.v('i1') ->> 'invitation_id')::uuid)::int, 1,
   'repeated activations created exactly one pass');
-select is((select qr_token_hash from guest_passes), digest(pg_temp.v('a1') ->> 'qr_token', 'sha256'), 'only the QR token hash is stored');
 
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000c2');
 select is(activate_guest_invitation(pg_temp.v('i1') ->> 'share_token', null) ->> 'result', 'already_claimed',
@@ -198,12 +194,91 @@ select pg_temp.as_anon('198.51.100.10');
 select isnt(preview_guest_invitation(null, pg_temp.v('i1') ->> 'short_code') ->> 'result', 'rate_limited',
   'other clients are not affected');
 
+-- ---------------------------------------------------------------------------
+-- Reception check-in: the guest scans the station QR with their phone
+-- ---------------------------------------------------------------------------
+reset role;
+set local role service_role;
+insert into t values ('st', create_reception_station('Réception principale'));
+insert into t values ('st2', create_reception_station('Réception test'));
+select set_reception_station_active((pg_temp.v('st2') ->> 'station_id')::uuid, false);
+reset role;
+select matches(pg_temp.v('st') ->> 'qr_payload', '^AFR1\.[A-Za-z0-9_-]{43}$', 'station QR payload is AFR1.<256-bit token>');
+select is((select token_hash from reception_stations where name = 'Réception principale'),
+  digest(substr(pg_temp.v('st') ->> 'qr_payload', 6), 'sha256'), 'only the station token hash is stored');
+select is((select count(*) from reception_stations
+  where token_hash = convert_to(pg_temp.v('st') ->> 'qr_payload', 'UTF8')
+     or token_hash = convert_to(substr(pg_temp.v('st') ->> 'qr_payload', 6), 'UTF8'))::int, 0, 'raw station token is never stored');
+
+-- A second guest with a pass that expires before the visit.
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
+insert into t values ('i4', create_guest_invitation(null));
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000c3');
+select is(activate_guest_invitation(pg_temp.v('i4') ->> 'share_token', null) ->> 'result', 'activated', 'third guest activates');
+reset role;
+update guest_invitations set expires_at = now() - interval '1 minute' where id = (pg_temp.v('i4') ->> 'invitation_id')::uuid;
+
+select pg_temp.as_anon();
+select throws_ok(format('select redeem_my_guest_pass(%L)', pg_temp.v('st') ->> 'qr_payload'), '42501', null,
+  'public visitors cannot redeem');
+select throws_ok($$ select 1 from reception_stations $$, '42501', null, 'public visitors cannot read stations');
+
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000b1');
+select is(redeem_my_guest_pass(pg_temp.v('st') ->> 'qr_payload') ->> 'result', 'not_guest', 'members cannot redeem guest passes');
+select throws_ok($$ select token_hash from reception_stations $$, '42501', null, 'station hashes are not readable through the API');
+select throws_ok($$ select create_reception_station('Fake') $$, '42501', null, 'apps cannot create stations');
+select throws_ok(format('select rotate_reception_station_token(%L)', pg_temp.v('st') ->> 'station_id'), '42501', null,
+  'apps cannot rotate station tokens');
+
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000c2');
+select is(redeem_my_guest_pass(pg_temp.v('st') ->> 'qr_payload') ->> 'result', 'no_pass',
+  'a guest without an active pass is refused (and cannot use another guest''s pass)');
+
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000c1');
+select is(redeem_my_guest_pass('hello') ->> 'result', 'invalid_qr', 'malformed QR rejected');
+select is(redeem_my_guest_pass('https://arenafit.example/checkin') ->> 'result', 'invalid_qr', 'arbitrary URL rejected');
+select is(redeem_my_guest_pass('http://localhost/invite/' || (pg_temp.v('i1') ->> 'share_token')) ->> 'result', 'invalid_qr',
+  'invitation link rejected');
+select is(redeem_my_guest_pass('AFR1.' || (pg_temp.v('i1') ->> 'share_token')) ->> 'result', 'invalid_qr',
+  'well-formed but unknown station token rejected');
+select is(redeem_my_guest_pass(pg_temp.v('st2') ->> 'qr_payload') ->> 'result', 'station_inactive', 'inactive station rejected');
+select is(get_my_guest_pass() ->> 'status', 'activated', '…and the pass is still unused');
+
+insert into t values ('red', redeem_my_guest_pass(pg_temp.v('st') ->> 'qr_payload'));
+select is(pg_temp.v('red') ->> 'result', 'redeemed', 'valid guest + valid station QR → redeemed');
+select is(pg_temp.v('red') ->> 'station_name', 'Réception principale', 'success shows the station');
+insert into t values ('red2', redeem_my_guest_pass(pg_temp.v('st') ->> 'qr_payload'));
+select is(pg_temp.v('red2') ->> 'result', 'already_used', 'scanning again → already used');
+select is(pg_temp.v('red2') ->> 'redeemed_at', pg_temp.v('red') ->> 'redeemed_at', '…with the original redemption time');
+select is(get_my_guest_pass() ->> 'status', 'used', 'the pass is now used');
+select ok(get_my_guest_pass() ->> 'redeemed_at' is not null, 'the pass carries its redemption time');
+
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000c3');
+select is(redeem_my_guest_pass(pg_temp.v('st') ->> 'qr_payload') ->> 'result', 'expired', 'expired pass rejected');
+
+reset role;
+select is((select count(*) from guest_redemptions)::int, 1, 'exactly one redemption recorded');
+select is((select reception_station_id from guest_redemptions), (pg_temp.v('st') ->> 'station_id')::uuid,
+  'the redemption records the station');
+
+-- Rotation
+set local role service_role;
+insert into t values ('st_new', rotate_reception_station_token((pg_temp.v('st') ->> 'station_id')::uuid));
+reset role;
+select isnt(pg_temp.v('st_new') ->> 'qr_payload', pg_temp.v('st') ->> 'qr_payload', 'rotation issues a new QR');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000c2');
+select is(redeem_my_guest_pass(pg_temp.v('st') ->> 'qr_payload') ->> 'result', 'invalid_qr', 'old station QR rejected after rotation');
+select is(redeem_my_guest_pass(pg_temp.v('st_new') ->> 'qr_payload') ->> 'result', 'no_pass',
+  'new station QR accepted after rotation (station check passes)');
+
 -- Funnel
 reset role;
 select results_eq($$ select event, count(*)::int from guest_pass_events
-  where event in ('gift_created', 'gift_activated', 'gift_cancelled', 'gift_expired') group by event order by event $$,
-  $$ values ('gift_activated', 1), ('gift_cancelled', 1), ('gift_created', 3), ('gift_expired', 1) $$,
+  where event in ('gift_created', 'gift_activated', 'gift_cancelled', 'gift_expired', 'guest_pass_redeemed')
+  group by event order by event $$,
+  $$ values ('gift_activated', 2), ('gift_cancelled', 1), ('gift_created', 4), ('gift_expired', 2), ('guest_pass_redeemed', 1) $$,
   'funnel events recorded once per transition');
+select ok((select count(*) from guest_pass_events where event = 'reception_qr_scanned') >= 4, 'reception scans are recorded');
 
 select * from finish();
 rollback;
