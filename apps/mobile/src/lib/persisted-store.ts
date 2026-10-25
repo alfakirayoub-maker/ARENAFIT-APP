@@ -15,7 +15,7 @@ export function createPersistedStore<T>(key: string, initial: T) {
   const emit = () => listeners.forEach((l) => l());
 
   // Hydrate once; storage failures (private mode, quota) keep the in-memory value.
-  AsyncStorage.getItem(storageKey)
+  const hydrated: Promise<void> = AsyncStorage.getItem(storageKey)
     .then((raw) => {
       if (raw != null && !changedBeforeHydration) {
         state = JSON.parse(raw) as T;
@@ -42,5 +42,5 @@ export function createPersistedStore<T>(key: string, initial: T) {
     return useSyncExternalStore(subscribe, get, get);
   }
 
-  return { get, set, useStore };
+  return { get, set, useStore, hydrated };
 }

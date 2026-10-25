@@ -21,7 +21,7 @@ export function MembershipCard({ membership, holderName }: { membership: Members
     <View style={styles.card} accessible accessibilityLabel={`${membership.planName}, ${holderName}`}>
       <View style={styles.stripe} />
       <View style={styles.top}>
-        <Logo height={22} />
+        <Logo height={34} />
         <Badge label={t(`profile.membershipStatus.${membership.status}`)} tone={statusTone[membership.status]} />
       </View>
       <View style={styles.bottom}>

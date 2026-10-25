@@ -49,7 +49,7 @@ export default function HomeScreen() {
       }>
       {/* Header */}
       <View style={styles.header}>
-        <Logo height={26} />
+        <Logo height={44} />
         {session.kind === 'member' && (
           <PressableScale
             onPress={() => router.push('/profil')}

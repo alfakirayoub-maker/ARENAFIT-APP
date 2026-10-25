@@ -31,6 +31,7 @@ export const fixtureRepository: ContentRepository = {
         .slice(0, limit),
     ),
   getSession: (id) => delay(sessions().find((s) => s.id === id) ?? null),
+  getSessionsByIds: (ids) => delay(sessions().filter((s) => ids.includes(s.id))),
   listActivities: () => delay(fixtureActivities),
   getActivity: (slug) => delay(fixtureActivities.find((a) => a.slug === slug) ?? null),
   listCoachesForActivity: (activityId) => delay(fixtureCoaches.filter((c) => c.activityIds.includes(activityId))),

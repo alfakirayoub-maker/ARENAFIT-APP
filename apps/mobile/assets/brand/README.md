@@ -13,6 +13,9 @@ Expected files:
 
 Then:
 
-1. Point `src/components/brand/logo-source.ts` at `arena-fit-logo.png` with its real pixel aspect ratio (rendered with `contentFit="contain"`, never recolored or redrawn).
+1. ✅ `arena-fit-logo.png` (official file, unmodified, 1080×639) is wired in
+   `src/components/brand/logo-source.ts` and rendered with `contentFit="contain"`.
+   The Android notification icon (`assets/notifications/notification-icon.png`) is the
+   logo's triangle mark cropped from this file — white pixels unchanged.
 2. Point `icon` / `splash` in `app.json` at the new files.
 3. The logo green (#80B918) is already the `brand` token in `src/theme/tokens.ts`.

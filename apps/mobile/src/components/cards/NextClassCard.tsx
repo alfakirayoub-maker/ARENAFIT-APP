@@ -10,17 +10,18 @@ import { PressableScale } from '@/components/ui/PressableScale';
 import { Text } from '@/components/ui/Text';
 import { coachLabel, relativeDayLabel } from '@/features/planning/session-utils';
 import { useReminderOffsetLabel, useReminderSheet } from '@/features/reminders/ReminderSheet';
-import { useReminders } from '@/features/reminders/store';
+import { useReminder } from '@/features/reminders/hooks';
+import { canSetReminder } from '@/features/reminders/logic';
 import { colors, radius, spacing } from '@/theme';
 import type { ClassSession } from '@/types/domain';
 
 /** Home hero: the next class, with the reminder CTA. */
 export function NextClassCard({ session }: { session: ClassSession }) {
   const { t } = useTranslation();
-  const reminders = useReminders();
   const reminderSheet = useReminderSheet();
   const offsetLabel = useReminderOffsetLabel();
-  const reminder = reminders.offsetFor(session.id);
+  const reminder = useReminder(session.id)?.offsetMinutes;
+  const canRemind = reminder !== undefined || canSetReminder(session, new Date());
   const meta = [coachLabel(session), session.room].filter(Boolean);
 
   return (
@@ -53,11 +54,18 @@ export function NextClassCard({ session }: { session: ClassSession }) {
       </PressableScale>
       <View style={styles.footer}>
         <Button
-          label={reminder !== undefined ? t('reminder.activeLabel', { offset: offsetLabel(reminder) }) : t('reminder.cta')}
-          icon={reminder !== undefined ? 'notifications' : 'notifications-outline'}
+          label={
+            reminder !== undefined
+              ? t('reminder.activeLabel', { offset: offsetLabel(reminder) })
+              : canRemind
+                ? t('reminder.cta')
+                : t('reminder.tooLate')
+          }
+          icon={reminder !== undefined ? 'checkmark-circle' : canRemind ? 'notifications-outline' : 'time-outline'}
           variant={reminder !== undefined ? 'secondary' : 'primary'}
           size="lg"
           fullWidth
+          disabled={!canRemind}
           onPress={() => reminderSheet.open(session)}
         />
       </View>

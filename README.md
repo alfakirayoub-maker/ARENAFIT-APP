@@ -6,7 +6,7 @@ an admin dashboard (coming in Sprint 6–7).
 ```
 apps/mobile     Expo (React Native) app — iOS / Android
 supabase/       database migrations, RLS policies, seed data
-docs/           architecture & plan (start with docs/ARCHITECTURE.md)
+docs/           architecture & plan (docs/ARCHITECTURE.md), dev builds & notifications (docs/DEV_BUILD.md)
 ```
 
 ## Getting started

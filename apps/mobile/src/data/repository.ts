@@ -24,6 +24,11 @@ export interface ContentRepository {
     coachId?: string;
   }): Promise<ClassSession[]>;
   getSession(id: string): Promise<ClassSession | null>;
+  /**
+   * Current version of several sessions (reminder reconciliation). Ids absent
+   * from the result were deleted or are no longer published.
+   */
+  getSessionsByIds(ids: string[]): Promise<ClassSession[]>;
 
   // Activities ----------------------------------------------------------------
   listActivities(): Promise<Activity[]>;

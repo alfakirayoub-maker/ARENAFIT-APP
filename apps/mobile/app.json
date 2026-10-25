@@ -36,7 +36,15 @@
           "imageWidth": 76
         }
       ],
-      "expo-localization"
+      "expo-localization",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notifications/notification-icon.png",
+          "color": "#80B918",
+          "defaultChannel": "class-reminders"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

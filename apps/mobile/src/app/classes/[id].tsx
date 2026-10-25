@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 
@@ -14,24 +15,37 @@ import { IntensityMeter } from '@/components/ui/IntensityMeter';
 import { ListGroup, ListRow } from '@/components/ui/ListRow';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
+import { useToast } from '@/components/ui/Toast';
 import { useActivity, useClassSession } from '@/data/queries';
 import { hasEnded, hasStarted, relativeDayLabel } from '@/features/planning/session-utils';
 import { useReminderOffsetLabel, useReminderSheet } from '@/features/reminders/ReminderSheet';
-import { useReminders } from '@/features/reminders/store';
+import { useReminder } from '@/features/reminders/hooks';
+import { canSetReminder } from '@/features/reminders/logic';
 import { durationMinutes } from '@/lib/club-time';
 import { colors, radius, spacing } from '@/theme';
 
 export default function ClassDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, from } = useLocalSearchParams<{ id: string; from?: string }>();
   const { t } = useTranslation();
+  const toast = useToast();
   const sessionQuery = useClassSession(id);
   const session = sessionQuery.data;
   const activityQuery = useActivity(session?.activity.slug ?? '');
   const activity = session ? activityQuery.data : undefined;
 
-  const reminders = useReminders();
+  const record = useReminder(id);
   const reminderSheet = useReminderSheet();
   const offsetLabel = useReminderOffsetLabel();
+
+  // Opened from a reminder notification but the class is gone: go to the
+  // planning instead of a dead end.
+  const gone = sessionQuery.data === null;
+  useEffect(() => {
+    if (gone && from === 'reminder') {
+      toast.show(t('reminder.goneFromNotification'), 'calendar-clear-outline');
+      router.replace('/planning');
+    }
+  }, [gone, from, toast, t]);
 
   if (sessionQuery.data === undefined && sessionQuery.isError) {
     return (
@@ -57,8 +71,9 @@ export default function ClassDetailScreen() {
     );
   }
 
-  const reminder = reminders.offsetFor(session.id);
+  const reminder = record?.offsetMinutes;
   const started = hasStarted(session);
+  const canRemind = reminder !== undefined || canSetReminder(session, new Date());
   const description = session.description ?? activity?.description ?? null;
   const hasDetails =
     activity &&
@@ -71,11 +86,19 @@ export default function ClassDetailScreen() {
     started || session.isCancelled ? null : (
       <>
         <Button
-          label={reminder !== undefined ? t('reminder.activeLabel', { offset: offsetLabel(reminder) }) : t('reminder.cta')}
-          icon={reminder !== undefined ? 'notifications' : 'notifications-outline'}
+          label={
+            reminder !== undefined
+              ? t('reminder.activeLabel', { offset: offsetLabel(reminder) })
+              : canRemind
+                ? t('reminder.cta')
+                : t('reminder.tooLate')
+          }
+          icon={reminder !== undefined ? 'checkmark-circle' : canRemind ? 'notifications-outline' : 'time-outline'}
           variant={reminder !== undefined ? 'secondary' : 'primary'}
           size="lg"
           fullWidth
+          disabled={!canRemind}
+          accessibilityHint={reminder !== undefined ? `${t('reminder.modify')}, ${t('reminder.remove')}` : undefined}
           onPress={() => reminderSheet.open(session)}
         />
         <Text variant="caption" color="tertiary" align="center">

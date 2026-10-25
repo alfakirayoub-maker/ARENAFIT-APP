@@ -1,6 +1,6 @@
 # Arena Fit — Technical architecture
 
-Status: Sprint 3 (Supabase public catalogue) done, awaiting review. This document is the reference for the
+Status: Sprint 4 (class reminders & notification infrastructure) done, awaiting review. This document is the reference for the
 next sprints. Product requirements live in the master build brief. This
 document only covers how the product is built.
 
@@ -207,7 +207,7 @@ comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BR
 | 1 ✅ | Workspace, Expo Router, tokens, typography, i18n, tab navigation, logo slot, UI primitives, cards, skeletons, empty states, schema and seed | `tsc` clean, web/Android bundle exports, UI kit renders with no console errors |
 | 2 ✅ | Home, Planning (week selector + filters), Class detail, Activities, Coaches, News list/detail, Profile, Pass & Invitations UI, local reminders/favorites. Dev fixtures based on the real roster | All screens navigable with realistic data, plus loading, empty and error states |
 | 3 ✅ | Supabase repositories for coaches, activities, planning and news (no login), controlled club clock, image storage, pgTAP RLS/seed/clock tests, cache strategy, release-bundle check | App runs against Supabase as a visitor, RLS verified in SQL and over HTTP |
-| 4 | Reminders (local scheduling, 15/30/60/120 min, server mirror), push token registration, notification preferences, schedule-change pushes (Edge Function) | Reminder fires on device, and a changed session re-notifies followers |
+| 4 ✅ | Native local reminders (15/30/60/120 min) via a platform-independent ReminderService, contextual permission UX, reconciliation with the live planning, notification tap routing, Android channel + monochrome icon, notification preferences, push interface (not wired), EAS dev-build profiles | Logic covered by tests; device behaviour per docs/DEV_BUILD.md checklist |
 | 5 | Guest-pass RPCs, offer/share flow, Branch deferred deep linking (+ code fallback), invitation states, Guest Mode gating | End-to-end: member shares → guest activates → QR shown |
 | 6 | Admin app scaffold and auth, `/reception/scanner`, check/redeem RPCs | A pass can't be redeemed twice. All verdict screens done |
 | 7 | Admin CRUD: planning (duplicate session/week), coaches (photo upload), activities, news (publish/unpublish), notifications, members, guest passes, settings | Admin changes show up in the app |
@@ -215,11 +215,9 @@ comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BR
 
 ## 6. Risks and open points
 
-1. **Logo file not received in the dev environment.** The logo green (#80B918) is now the
-   `brand` token, and the brighter lime stays for CTAs and active states. The `Logo` component
-   still shows a neutral placeholder until the file is committed to
-   `apps/mobile/assets/brand/` and wired in `logo-source.ts` (rendered as-is, never recolored).
-   App icon and splash are still Expo placeholders.
+1. **App icon and splash** are still Expo placeholders. The official logo is in use
+   in the app (`assets/brand/arena-fit-logo.png`, unmodified), and the Android notification
+   icon is the logo's triangle mark. A square app-icon export of the brand is still needed.
 2. **No photography yet.** Image slots exist everywhere (`imageUrl` / `coverUrl` / `photoUrl`).
    Until club photos are uploaded, `Artwork` shows a category-tinted placeholder.
 3. **Branch setup** needs a Branch account, the final domain, iOS associated domains and
@@ -227,9 +225,9 @@ comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BR
    SDK needs a development build, not Expo Go.
 4. **Member authentication** is pending your decision. The `AuthProvider` boundary
    (`src/features/session/`) is ready for it.
-5. **Reminder fire times** (Sprint 4) must come from `clubInstant()` / `starts_at`, never from
-   device tz rules. A future Moroccan rule change means a new `club_utc_offsets` migration
-   plus an app update. Pushing the offsets to the app at runtime is possible if that's too slow.
+5. **Device-only verification pending.** Native delivery, tap routing (cold start, background,
+   foreground), the Android channel, OEM battery-saver delays and reboot persistence need the
+   physical-device checklist in `docs/DEV_BUILD.md`. Web only previews the flow.
 6. **Activity categories** of club-specific formats are inferred from names. They're flagged
    for club review in `seed.sql`.
 7. **Recurring schedule.** The MVP stores concrete sessions, and the admin duplicates days
@@ -284,3 +282,50 @@ Screen ─► query hook (src/data/queries.ts) ─► ContentRepository ─► S
 | `npm run test:timezones` | Club clock under 5 device timezones |
 | `npm run check:release` | Production Android/iOS bundles contain no fixtures, mock member or service-role key |
 | `npm run db:test` (root) | Clean DB, then migrations, production seed, pgTAP (clock, seed facts, RLS), dev fixtures load check |
+
+## 8. Class reminders & notifications (Sprint 4)
+
+```
+UI (ReminderSheet, ClassCard, Class Details, settings)
+  → hooks (src/features/reminders/hooks.ts: useReminder, useNotificationPermission, ReminderSync)
+    → ReminderService (service.ts — platform independent, unit-tested under Node)
+      → NotificationScheduler
+          platform-scheduler.ts      expo-notifications (iOS / Android)
+          platform-scheduler.web.ts  simulated, nothing delivered (web preview)
+```
+
+* **Records** (`arenafit:class-reminders.v2`): one per session, including session id,
+  activity id/slug, title and coach snapshot, club date and start time, offset, the trigger
+  instant (via `clubInstant()`), the native notification id, and created/updated times. Every
+  mutation is serialised, so concurrent taps can't create duplicates.
+* **Availability:** no reminder for cancelled, in-progress or finished classes. Only offsets
+  whose trigger is still in the future are shown.
+* **Permission:** never requested at startup. Choosing an offset when undetermined opens a
+  short explanation, then one OS prompt. A refusal opens a "Notifications désactivées" sheet
+  with "Ouvrir les réglages" and no re-prompt.
+* **Reconciliation** runs on launch, on foreground (throttled to 30 s) and after a planning
+  pull-to-refresh:
+  * moved class: cancel and re-schedule;
+  * cancelled, deleted or unpublished class: remove;
+  * class started: remove;
+  * class moved so early the reminder time has passed: remove;
+  * snapshot changed or the OS lost the notification: refresh;
+  * reminder already fired: left untouched;
+  * planning unavailable: nothing is cancelled.
+
+  Orphaned OS class reminders are cancelled, and the user gets a toast for each moved or
+  removed reminder.
+* **Notification:** title "RPM dans 30 min", body "Votre séance avec ANAS D commence à 18:00
+  chez Arena Fit." Payload `{ type: 'class-reminder', sessionId }`. Taps go through
+  `routeForNotificationData` (a whitelist, never a raw URL) to `/classes/[id]?from=reminder`.
+  If the class is gone, the app opens Planning with a toast.
+* **Android:** one channel, `class-reminders` ("Cours & rappels", high importance). The small
+  icon is the white logo mark, tinted `#80B918`. Delivery is `bestEffort`, with no
+  exact-alarm permission.
+* **Preferences** (Profil › Notifications): "Cours & rappels" works. Turning it off cancels
+  OS notifications but keeps reminders, and turning it on restores them. News, Offres &
+  événements and Changements de planning are saved choices for future remote push, labelled
+  "Bientôt".
+* **Remote push:** `src/features/notifications/push.ts` documents the interface and flow
+  only. No token collection, endpoint or sending yet.
+* **Dev builds:** `apps/mobile/eas.json` profiles, steps and credentials in `docs/DEV_BUILD.md`.

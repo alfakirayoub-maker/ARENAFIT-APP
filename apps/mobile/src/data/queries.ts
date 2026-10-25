@@ -8,6 +8,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
+import { requestReminderReconciliation } from '@/features/reminders/reconcile-requests';
 import { addDays, clubNow, startOfWeek, type ClubDate } from '@/lib/club-time';
 import type { Activity, ActivityCategory, ClassSession, Coach, NewsArticle } from '@/types/domain';
 
@@ -81,6 +82,8 @@ export function useRefresh(...families: QueryKey[]) {
     setRefreshing(true);
     try {
       await Promise.all(families.map((queryKey) => client.invalidateQueries({ queryKey })));
+      // A refreshed planning may have moved or cancelled classes with reminders.
+      if (families.some((f) => f[0] === queryKeys.sessions[0])) requestReminderReconciliation();
     } finally {
       setRefreshing(false);
     }

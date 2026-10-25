@@ -8,7 +8,8 @@ import { PressableScale } from '@/components/ui/PressableScale';
 import { Text } from '@/components/ui/Text';
 import { coachLabel, hasEnded, hasStarted } from '@/features/planning/session-utils';
 import { useReminderOffsetLabel, useReminderSheet } from '@/features/reminders/ReminderSheet';
-import { useReminders } from '@/features/reminders/store';
+import { useReminder } from '@/features/reminders/hooks';
+import { canSetReminder } from '@/features/reminders/logic';
 import { colors, radius, spacing } from '@/theme';
 import type { ClassSession } from '@/types/domain';
 
@@ -22,12 +23,14 @@ export type ClassCardProps = {
  */
 export function ClassCard({ session }: ClassCardProps) {
   const { t } = useTranslation();
-  const reminders = useReminders();
   const reminderSheet = useReminderSheet();
   const offsetLabel = useReminderOffsetLabel();
 
   const started = hasStarted(session);
-  const reminder = reminders.offsetFor(session.id);
+  const record = useReminder(session.id);
+  const reminder = record?.offsetMinutes;
+  // Bell only when a reminder exists or one is still possible (not too close to the start).
+  const showBell = record !== undefined || canSetReminder(session, new Date());
   const meta = [coachLabel(session), session.room].filter(Boolean).join(' · ');
   const inactive = started || session.isCancelled;
 
@@ -77,7 +80,7 @@ export function ClassCard({ session }: ClassCardProps) {
         </View>
       </PressableScale>
 
-      {!inactive && (
+      {!inactive && showBell && (
         <View style={styles.bell}>
           <IconButton
             icon={reminder !== undefined ? 'notifications' : 'notifications-outline'}

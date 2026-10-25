@@ -41,6 +41,7 @@ async function rows<T extends z.ZodType>(schema: T, request: PromiseLike<Result>
 }
 
 const first = <T>(list: T[]): T | null => list[0] ?? null;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Supabase-backed public content. Reads only — RLS restricts the anon role to
@@ -82,6 +83,15 @@ export function createSupabaseRepository(client: SupabaseClient): ContentReposit
       if (activityId) q = q.eq('activity_id', activityId);
       if (coachId) q = q.eq('coach_id', coachId);
       const list = await rows(sessionRow, q);
+      return list.map((r) => toSession(r, publicUrl));
+    },
+
+    async getSessionsByIds(ids) {
+      // Non-UUID ids (e.g. left over from development fixtures) can't exist
+      // here: treat them as not found instead of failing the whole request.
+      const valid = ids.filter((id) => UUID.test(id));
+      if (valid.length === 0) return [];
+      const list = await rows(sessionRow, sessions().in('id', valid));
       return list.map((r) => toSession(r, publicUrl));
     },
 

@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, Platform, StyleSheet, View } from 'react-native';
 
 import { MembershipCard } from '@/components/cards/MembershipCard';
 import { Avatar } from '@/components/ui/Avatar';
@@ -17,6 +17,8 @@ import { Text } from '@/components/ui/Text';
 import { useActivities } from '@/data/queries';
 import { dataSource } from '@/data/source';
 import { useFavoriteActivities } from '@/features/favorites/store';
+import { useNotificationPermission } from '@/features/reminders/hooks';
+import { setSimulatedPermission } from '@/features/reminders/simulated-permission';
 import { useSession, type SessionKind } from '@/features/session/session';
 import { spacing } from '@/theme';
 
@@ -156,10 +158,33 @@ function DevTools({ kind, onChange }: { kind: SessionKind; onChange: (k: Session
       <Text variant="caption" color="tertiary" style={styles.devHint}>
         {t('profile.devDataSource')} : {dataSource}
       </Text>
+      {Platform.OS === 'web' && <SimulatedPermission />}
       <View style={styles.devButton}>
         <Button label="UI kit" variant="ghost" icon="color-palette-outline" onPress={() => router.push('/dev/ui')} />
       </View>
     </View>
+  );
+}
+
+/** Web preview only: pick the notification permission the simulated OS reports. */
+function SimulatedPermission() {
+  const { t } = useTranslation();
+  const { permission } = useNotificationPermission();
+  return (
+    <>
+      <Text variant="caption" color="tertiary" style={styles.devHint}>
+        {t('profile.devPermission')}
+      </Text>
+      <ChipRow
+        options={[
+          { value: 'undetermined' as const, label: t('notificationSettings.permissionUndetermined') },
+          { value: 'granted' as const, label: t('notificationSettings.permissionGranted') },
+          { value: 'denied' as const, label: t('notificationSettings.permissionDenied') },
+        ]}
+        value={permission === 'granted' || permission === 'denied' ? permission : 'undetermined'}
+        onChange={setSimulatedPermission}
+      />
+    </>
   );
 }
 

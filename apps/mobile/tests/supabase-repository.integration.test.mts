@@ -93,6 +93,14 @@ describe('Supabase content repository', { skip }, () => {
     assert.ok(onlyAli.length > 0 && onlyAli.every((s) => s.coach?.displayName === 'ALI'));
   });
 
+  it('fetches sessions by id for reminder reconciliation (missing and non-UUID ids are simply absent)', async () => {
+    const monday = startOfWeekUtc(clubNow().date);
+    const [a, b] = await repo!.listSessions({ from: monday, to: addDaysUtc(monday, 6) });
+    const found = await repo!.getSessionsByIds([a.id, b.id, '00000000-0000-0000-0000-000000000000', 'session-from-fixtures']);
+    assert.deepEqual(found.map((s) => s.id).sort(), [a.id, b.id].sort());
+    assert.deepEqual(await repo!.getSessionsByIds([]), []);
+  });
+
   it('returns published news only, newest first', async () => {
     const news = await repo!.listNews();
     assert.ok(news.length > 0);

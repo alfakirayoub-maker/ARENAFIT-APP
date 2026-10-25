@@ -18,6 +18,8 @@ import { useEffect } from 'react';
 import { ToastProvider } from '@/components/ui/Toast';
 import { queryClient, useRefetchOnAppForeground } from '@/data/queries';
 import { ReminderSheetProvider } from '@/features/reminders/ReminderSheet';
+import { NotificationRouter } from '@/features/notifications/NotificationRouter';
+import { ReminderSync } from '@/features/reminders/hooks';
 import { SessionProvider } from '@/features/session/session';
 import { colors } from '@/theme';
 
@@ -64,6 +66,8 @@ export default function RootLayout() {
               <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
                 <Stack.Screen name="(tabs)" />
               </Stack>
+              <ReminderSync />
+              <NotificationRouter />
             </ReminderSheetProvider>
           </ToastProvider>
         </ThemeProvider>
