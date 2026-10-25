@@ -183,6 +183,11 @@ export function RedemptionFailure({ outcome, onRetry, onBack }: { outcome: ScanO
           {body}
         </Text>
       ) : null}
+      {outcome.result === 'already_used' && outcome.stationName ? (
+        <Text variant="caption" color="tertiary">
+          {outcome.stationName}
+        </Text>
+      ) : null}
       <View style={styles.failureActions}>
         {canRetry && <Button label={t('guestPass.result.retry')} icon="scan-outline" size="lg" fullWidth onPress={onRetry} />}
         <Button label={t('guestPass.result.back')} variant={canRetry ? 'ghost' : 'secondary'} fullWidth onPress={onBack} />

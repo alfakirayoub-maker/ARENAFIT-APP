@@ -75,18 +75,20 @@ function layout(key) {
   const frame = 5 * L.gap; // clear space around the QR before the outline
   const stationY = qrY + L.qr + frame + L.station * 2;
   const hintY = stationY + L.hint * 2.6;
+  const hintY2 = hintY + L.hint * 1.35;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${L.w}mm" height="${L.h}mm" viewBox="0 0 ${L.w} ${L.h}">
   <title>Arena Fit — ${esc(name)}</title>
   <rect width="${L.w}" height="${L.h}" fill="#FFFFFF"/>
   <rect width="${L.w}" height="${L.band}" fill="#0A0A0B"/>
   <image href="${logoHref}" x="${cx - L.logoW / 2}" y="${(L.band - logoH) / 2}" width="${L.logoW}" height="${logoH}" preserveAspectRatio="xMidYMid meet"/>
   <rect y="${L.band}" width="${L.w}" height="${L.gap * 1.6}" fill="#80B918"/>
-  <text x="${cx}" y="${headY1}" text-anchor="middle" ${font} font-weight="800" font-size="${L.head}" fill="#0A0A0B" letter-spacing="0.2">SCANNEZ POUR UTILISER</text>
+  <text x="${cx}" y="${headY1}" text-anchor="middle" ${font} font-weight="800" font-size="${L.head}" fill="#0A0A0B" letter-spacing="0.2">SCANNER POUR UTILISER</text>
   <text x="${cx}" y="${headY2}" text-anchor="middle" ${font} font-weight="800" font-size="${L.head}" fill="#0A0A0B" letter-spacing="0.2">VOTRE PASS</text>
   <rect x="${qrX - frame}" y="${qrY - frame}" width="${L.qr + 2 * frame}" height="${L.qr + 2 * frame}" rx="${3 * L.gap}" fill="none" stroke="#D4D4D8" stroke-width="${0.35 * L.gap}"/>
   ${qrSvg(qrX, qrY, L.qr)}
   <text x="${cx}" y="${stationY}" text-anchor="middle" ${font} font-weight="700" font-size="${L.station}" fill="#0A0A0B">${esc(name)}</text>
-  <text x="${cx}" y="${hintY}" text-anchor="middle" ${font} font-weight="500" font-size="${L.hint}" fill="#52525B">Ouvrez l’application Arena Fit puis touchez « Scanner le QR ».</text>
+  <text x="${cx}" y="${hintY}" text-anchor="middle" ${font} font-weight="500" font-size="${L.hint}" fill="#52525B">Ouvrez l’application Arena Fit puis scannez ce QR</text>
+  <text x="${cx}" y="${hintY2}" text-anchor="middle" ${font} font-weight="500" font-size="${L.hint}" fill="#52525B">depuis “Utiliser mon Pass”.</text>
 </svg>
 `;
 }

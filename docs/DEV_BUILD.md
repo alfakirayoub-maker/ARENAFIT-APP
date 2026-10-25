@@ -170,7 +170,8 @@ phone and one iPhone.
 | # | Scenario | Expected | Android | iPhone |
 | --- | --- | --- | --- | --- |
 | 1 | First « Scanner le QR » (permission never asked) | explanation → « Autoriser la caméra » → OS prompt | ☐ | ☐ |
-| 2 | Permission denied | « Caméra désactivée », no new prompt, rest of the app works | ☐ | ☐ |
+| 2 | Permission denied | « Accès à la caméra désactivé », no new prompt, rest of the app works | ☐ | ☐ |
+| 2b | iOS restricted (Screen Time) / Android « Don't ask again » | same denied view, « Ouvrir les réglages » | ☐ | ☐ |
 | 3 | « Ouvrir les réglages » → allow → back to app | scanner appears without restarting | ☐ | ☐ |
 | 4 | Camera opens | < 1 s, frame visible, close (×) works | ☐ | ☐ |
 | 5 | A5 print at ~30 cm | recognised < 1 s | ☐ | ☐ |
@@ -181,12 +182,12 @@ phone and one iPhone.
 | 10 | Torch toggle | turns on/off; off when leaving the screen | ☐ | ☐ |
 | 11 | Portrait only | layout correct, no rotation glitches | ☐ | ☐ |
 | 12 | Random QR / URL / invitation link | inline « QR non reconnu », scanning continues, nothing opens | ☐ | ☐ |
-| 13 | Airplane mode, valid QR | « Connexion impossible », pass not used | ☐ | ☐ |
+| 13 | Airplane mode, valid QR | « Vérification du Pass… » then « Connexion impossible », pass not used | ☐ | ☐ |
 | 14 | Network back → « Réessayer » | PASS VALIDÉ (or « déjà utilisé » if the first call went through) | ☐ | ☐ |
 | 15 | Hold the QR in view after success | one redemption only (check `guest_redemptions`) | ☐ | ☐ |
-| 16 | Scan again with a used pass | « Pass déjà utilisé » + time | ☐ | ☐ |
+| 16 | Scan again with a used pass | « PASS UTILISÉ / Validé le … à … » | ☐ | ☐ |
 | 17 | Expired pass | « Pass expiré » | ☐ | ☐ |
-| 18 | Deactivated station | « QR désactivé » | ☐ | ☐ |
+| 18 | Deactivated station | « Ce QR n’est plus actif » | ☐ | ☐ |
 | 19 | Rotated station, old print | « QR Arena Fit invalide »; new print works | ☐ | ☐ |
 | 20 | Background/foreground during scan and on PASS VALIDÉ | resumes correctly; clock catches up | ☐ | ☐ |
 | 21 | Kill & reopen within 2 min of success | live PASS VALIDÉ (server time) | ☐ | ☐ |
@@ -194,3 +195,11 @@ phone and one iPhone.
 | 23 | Stay on PASS VALIDÉ for 2 min | switches by itself to PASS UTILISÉ | ☐ | ☐ |
 | 24 | Phone clock set wrong (manual time) | same results as 21–23 | ☐ | ☐ |
 | 25 | Staff readability | « PASS VALIDÉ » readable at arm's length, max brightness | ☐ | ☐ |
+
+### Web simulator (development only)
+
+On web (and in dev builds) the scan screen shows « Simulation scanner (dev) »:
+valid station, deactivated station, network cut (valid QR whose request fails
+once, so « Réessayer » can be tried), unknown station, non-Arena Fit code,
+random URL. It is never in release bundles (`npm run check:release`,
+`tests/release-guards.test.mts`). It is not evidence that native scanning works.

@@ -14,7 +14,7 @@ CI=1 npx expo export --platform android --platform ios --output-dir "$OUT" >/dev
 FORBIDDEN=(
   "challenge-novembre" "Yassine" "Arena Premium" "buildFixtureSessions" "Renforcement musculaire"   # dev fixtures
   "createDevAuthProvider" "arenafit:dev-demo-member" "EXPO_PUBLIC_DEV_MEMBER" "arenafit.local"      # dev/test member
-  "AF-NOT-A-RECEPTION-QR" "example.com/promo" "EXPO_PUBLIC_DEV_RECEPTION_QR"                         # dev scan simulator
+  "AF-NOT-A-RECEPTION-QR" "example.com/promo" "EXPO_PUBLIC_DEV_RECEPTION_QR" "Simulation scanner" "Réseau coupé"                         # dev scan simulator
   "service_role" "key_test_"                                                                        # server key, Branch test key
   "q3Jx8Yb2mN0pQrStUvWxYz"                                                                          # raw test token (tests/)
 )

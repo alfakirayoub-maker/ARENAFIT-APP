@@ -18,13 +18,13 @@ import { useSession } from '@/features/session/session';
 import { haptics } from '@/lib/haptics';
 import { colors, radius, screenGutter, spacing } from '@/theme';
 
-type ScanSimulatorType = typeof import('@/dev/ScanSimulator').ScanSimulator;
 /** Development only: injected scans for web review / tests (excluded from release bundles). */
-const ScanSimulator: ScanSimulatorType | null =
+const devSimulator: typeof import('@/dev/ScanSimulator') | null =
   process.env.NODE_ENV !== 'production'
     ? // eslint-disable-next-line @typescript-eslint/no-require-imports -- dev-only module, excluded from release bundles
-      (require('@/dev/ScanSimulator') as typeof import('@/dev/ScanSimulator')).ScanSimulator
+      (require('@/dev/ScanSimulator') as typeof import('@/dev/ScanSimulator'))
     : null;
+const ScanSimulator = devSimulator?.ScanSimulator ?? null;
 
 /**
  * « Scanner le QR »: the guest scans the reception QR; the server redeems the
@@ -41,7 +41,14 @@ export default function ScanReceptionScreen() {
   const [phase, setPhase] = useState<ScanPhase>({ kind: 'scanning', notice: null });
 
   const [controller] = useState(
-    () => new ScanController({ redeem: (qr) => redeemAndUpdatePass(queryClient, qr), onChange: setPhase }),
+    () =>
+      new ScanController({
+        redeem: (qr) =>
+          devSimulator?.takeSimulatedNetworkFailure()
+            ? Promise.reject(new Error('simulated network failure'))
+            : redeemAndUpdatePass(queryClient, qr),
+        onChange: setPhase,
+      }),
   );
   useEffect(() => () => controller.dispose(), [controller]);
 

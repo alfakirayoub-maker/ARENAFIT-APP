@@ -64,7 +64,9 @@ select id, name, active, last_rotated_at, created_at from public.reception_stati
 
 * **Static QR (MVP).** A photo of the QR could be scanned elsewhere. It still
   requires an authenticated guest holding an active one-use pass, and uses it
-  up. Rotate when in doubt. No GPS or time-rotating QR in the MVP.
+  up. An active station QR, an authenticated guest and a valid one-use pass are all
+  required together. Rotate when in doubt. No GPS, geofencing, time-rotating QR, Bluetooth or
+  NFC in the MVP.
 * **Check-in record:** `guest_redemptions` (station, guest, time) and
   `guest_pass_events` (`reception_qr_scanned` with outcome, `guest_pass_redeemed`).
 * **Confirmation window:** the live « PASS VALIDÉ » screen lasts

@@ -402,7 +402,7 @@ QR shape before calling the server and never opens a scanned URL.
 
 **Known MVP limitation (static QR).** A photo of the printed QR could be scanned away from the
 club. Impact is limited: it still needs a guest identity holding an active one-use pass, and
-burns that pass. No GPS/geofencing or rotating QR now; `rotate_reception_station_token` and
+burns that pass. No GPS/geofencing, time-rotating QR, Bluetooth or NFC now; `rotate_reception_station_token` and
 per-station `active` allow rotation (e.g. monthly, or after a leak) without app changes.
 
 **Printing.** `select public.create_reception_station('Réception principale');` (or
