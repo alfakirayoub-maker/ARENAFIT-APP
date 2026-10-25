@@ -11,8 +11,14 @@ export const colors = {
   surfaceSecondary: '#1E1E21',
   surfacePressed: '#26262A',
 
-  // Arena Fit lime. Provisional value — confirm against the official brand
-  // guide / logo file and adjust here only.
+  // Arena Fit logo green (approx. #80B918, supplied by the club). Used for
+  // brand moments (membership card, brand marks). The logo file itself is never
+  // recolored.
+  brand: '#80B918',
+  brandMuted: 'rgba(128, 185, 24, 0.16)',
+
+  // Brighter lime for CTAs and active states — reads better on near-black than
+  // the logo green at small sizes. Approved alongside the brand green.
   primary: '#C6F432',
   primaryPressed: '#B3DE24',
   onPrimary: '#0A0A0B',

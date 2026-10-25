@@ -20,12 +20,17 @@ npm run typecheck
 Add dependencies to the mobile app with `npx expo install <pkg>` from
 `apps/mobile` so versions match the Expo SDK.
 
-In development, Profil → **UI kit (dev)** opens the design-system gallery.
+In development, Profil → **Développement** switches between visitor / guest / member mock sessions and opens the UI kit.
 
 ## Database
 
 ```bash
 supabase init              # first time only: creates supabase/config.toml
 supabase start
-supabase db reset           # applies supabase/migrations + supabase/seed.sql
+supabase db reset           # applies supabase/migrations + supabase/seed.sql (production facts only)
+psql "$DATABASE_URL" -f supabase/fixtures/dev.sql   # optional: mock rooms + schedule, local only
 ```
+
+The mobile app currently reads development fixtures (`apps/mobile/src/dev/fixtures/`).
+Those are mock data, not Arena Fit facts. Copy `apps/mobile/.env.example` to
+`.env.local` for runtime configuration.

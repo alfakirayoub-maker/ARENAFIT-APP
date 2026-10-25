@@ -18,45 +18,21 @@ import { SectionHeader } from '@/components/ui/SectionHeader';
 import { ClassCardSkeleton, MediaCardSkeleton } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
 import { colors, radius, spacing, typography, type TypographyVariant } from '@/theme';
-import type { ClassSessionSummary } from '@/types/domain';
+import { buildFixtureSessions } from '@/dev/fixtures/schedule';
+import { addDays, clubNow } from '@/lib/club-time';
+import type { ClassSession } from '@/types/domain';
 
 // Dev-only visual QA page for the design system. Not reachable in production.
 
-function at(hour: number, minute = 0) {
-  const d = new Date();
-  d.setHours(hour, minute, 0, 0);
-  return d.toISOString();
-}
-
-const sampleSessions: ClassSessionSummary[] = [
-  {
-    id: 'demo-1',
-    activityName: 'RPM',
-    category: 'cycling',
-    startsAt: at(18),
-    endsAt: at(19),
-    coachName: 'ANAS D',
-    roomName: 'Studio Cycling',
-    level: 'all_levels',
-  },
-  {
-    id: 'demo-2',
-    activityName: 'Body Pump',
-    category: 'fitness',
-    startsAt: at(19, 15),
-    endsAt: at(20, 15),
-    coachName: 'YOUSRA',
-    roomName: null,
-    level: 'intermediate',
-  },
-];
+const sampleSessions: ClassSession[] = buildFixtureSessions(clubNow().date)
+  .filter((x) => x.date === addDays(clubNow().date, 1))
+  .slice(0, 2);
 
 const swatches = Object.entries(colors).filter(([, v]) => v.startsWith('#'));
 const filters = ['Tous', 'Fitness', 'Combat', 'Cycling', 'Mind & Body'];
 
 export default function UiKitScreen() {
   const [filter, setFilter] = useState(filters[0]);
-  const [reminders, setReminders] = useState<Record<string, boolean>>({ 'demo-1': true });
 
   if (!__DEV__) return <Redirect href="/" />;
 
@@ -119,12 +95,7 @@ export default function UiKitScreen() {
       <View style={styles.stack}>
         {sampleSessions.map((s, i) => (
           <FadeIn key={s.id} index={i}>
-            <ClassCard
-              session={s}
-              onPress={() => {}}
-              reminderSet={!!reminders[s.id]}
-              onToggleReminder={() => setReminders((r) => ({ ...r, [s.id]: !r[s.id] }))}
-            />
+            <ClassCard session={s} />
           </FadeIn>
         ))}
         <ClassCardSkeleton />
@@ -132,7 +103,7 @@ export default function UiKitScreen() {
 
       <SectionHeader title="Media cards" />
       <View style={styles.stack}>
-        <MediaCard eyebrow="Cycling" title="RPM" subtitle="Coach ANAS D · 45 min" onPress={() => {}} />
+        <MediaCard eyebrow="Cycling" title="RPM" category="cycling" subtitle="Coach ANAS D" onPress={() => {}} />
         <MediaCardSkeleton />
       </View>
 

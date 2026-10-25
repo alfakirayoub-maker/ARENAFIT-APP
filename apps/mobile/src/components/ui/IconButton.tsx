@@ -11,6 +11,7 @@ export type IconButtonProps = {
   accessibilityLabel: string;
   onPress?: () => void;
   active?: boolean;
+  disabled?: boolean;
   variant?: 'filled' | 'plain';
   size?: number;
 };
@@ -20,14 +21,16 @@ export function IconButton({
   accessibilityLabel,
   onPress,
   active,
+  disabled,
   variant = 'filled',
   size = hitTarget,
 }: IconButtonProps) {
   return (
     <PressableScale
       onPress={onPress}
+      disabled={disabled}
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={active === undefined ? undefined : { selected: active }}
+      accessibilityState={{ selected: active, disabled }}
       hitSlop={Math.max(0, (hitTarget - size) / 2)}
       style={[
         styles.base,

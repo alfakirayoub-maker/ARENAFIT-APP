@@ -1,48 +1,47 @@
 -- =============================================================================
--- Arena Fit — reference seed data
+-- Arena Fit — PRODUCTION reference seed
 --
--- Coaches and their classes come from the official Arena Fit roster. Do not add
--- coaches here: new coaches are created from the admin dashboard.
--- Rooms other than 'Studio Cycling' are placeholders to confirm with the club.
+-- Only facts supplied by Arena Fit belong here:
+--   * the coach roster and each coach's classes,
+--   * the club timezone,
+--   * the initial guest-pass allowance (3, from the product brief).
+--
+-- Unknown attributes (durations, rooms, images, descriptions, intensity…) stay
+-- NULL / empty and are filled from the admin dashboard. Mock data for local
+-- development lives in supabase/fixtures/dev.sql — never in this file.
 -- =============================================================================
 
 insert into public.app_settings (key, value, is_public, description) values
-  ('club.timezone', '"Africa/Casablanca"', true, 'IANA timezone used to display the planning'),
-  ('guest_pass.default_allowance', '3', false, 'Guest passes granted to a new member'),
-  ('guest_pass.link_validity_days', '14', false, 'Days an invitation link stays activatable'),
-  ('guest_pass.pass_validity_days', '30', false, 'Days a guest pass stays valid once activated'),
-  ('guest_pass.sessions_per_pass', '1', true, 'Sessions offered by one guest pass'),
-  ('guest_pass.refund_expired_unactivated', 'true', false, 'Give the pass back when an invitation expires unused')
+  ('club.timezone', '"Africa/Casablanca"', true, 'IANA timezone of the club; planning times are local to it'),
+  ('guest_pass.default_allowance', '3', false, 'Guest passes granted to a new member')
 on conflict (key) do nothing;
 
-insert into public.rooms (name, sort_order) values
-  ('Studio Cycling', 1),
-  ('Studio Fitness', 2),   -- placeholder, confirm with club
-  ('Studio Combat', 3),    -- placeholder, confirm with club
-  ('Studio Mind & Body', 4) -- placeholder, confirm with club
-on conflict (name) do nothing;
-
--- default_duration_min values are starting defaults; each session sets its own times.
-insert into public.activities (slug, name, category, default_duration_min, is_featured, sort_order) values
-  ('body-pump',          'Body Pump',          'fitness',   60, true,  1),
-  ('rpm',                'RPM',                'cycling',   45, true,  2),
-  ('body-combat',        'Body Combat',        'combat',    55, true,  3),
-  ('body-attack',        'Body Attack',        'fitness',   55, false, 4),
-  ('arenas-synergy',     'Arena''s Synergy',   'fitness',   45, true,  5),
-  ('arena-500',          'Arena 500',          'fitness',   45, false, 6),
-  ('sprint',             'Sprint',             'cycling',   30, false, 7),
-  ('sprint-core',        'Sprint-Core',        'cycling',   45, false, 8),
-  ('core',               'Core',               'fitness',   30, false, 9),
-  ('core-mobility',      'Core / Mobility',    'mind_body', 45, false, 10),
-  ('mobility',           'Mobility',           'mind_body', 45, false, 11),
-  ('stretching',         'Stretching',         'mind_body', 45, false, 12),
-  ('full-legs',          'Full Legs',          'fitness',   45, false, 13),
-  ('grit-force',         'Grit Force',         'fitness',   30, false, 14),
-  ('rpm-mixte',          'RPM Mixte',          'cycling',   45, false, 15),
-  ('circuit-training',   'Circuit Training',   'fitness',   45, false, 16),
-  ('fitness-challenge',  'Fitness Challenge',  'fitness',   45, false, 17),
-  ('cardio-mix',         'Cardio Mix',         'fitness',   45, false, 18),
-  ('biking-adventure',   'Biking Adventure',   'cycling',   60, false, 19)
+-- Category is required for the planning filters. Les Mills formats map
+-- unambiguously (RPM/Sprint → Cycling, Body Combat → Combat, Body Pump/Attack
+-- → Fitness). REVIEW WITH CLUB: the category of club-specific formats
+-- (Arena's Synergy, Arena 500, Grit Force, Full Legs, Circuit Training,
+-- Fitness Challenge, Cardio Mix, Core, Biking Adventure, Mobility, Stretching,
+-- Core / Mobility) is inferred from the class name.
+insert into public.activities (slug, name, category, sort_order) values
+  ('body-pump',         'Body Pump',         'fitness',   1),
+  ('rpm',               'RPM',               'cycling',   2),
+  ('body-combat',       'Body Combat',       'combat',    3),
+  ('body-attack',       'Body Attack',       'fitness',   4),
+  ('arenas-synergy',    'Arena''s Synergy',  'fitness',   5),
+  ('arena-500',         'Arena 500',         'fitness',   6),
+  ('sprint',            'Sprint',            'cycling',   7),
+  ('sprint-core',       'Sprint-Core',       'cycling',   8),
+  ('core',              'Core',              'fitness',   9),
+  ('core-mobility',     'Core / Mobility',   'mind_body', 10),
+  ('mobility',          'Mobility',          'mind_body', 11),
+  ('stretching',        'Stretching',        'mind_body', 12),
+  ('full-legs',         'Full Legs',         'fitness',   13),
+  ('grit-force',        'Grit Force',        'fitness',   14),
+  ('rpm-mixte',         'RPM Mixte',         'cycling',   15),
+  ('circuit-training',  'Circuit Training',  'fitness',   16),
+  ('fitness-challenge', 'Fitness Challenge', 'fitness',   17),
+  ('cardio-mix',        'Cardio Mix',        'fitness',   18),
+  ('biking-adventure',  'Biking Adventure',  'cycling',   19)
 on conflict (slug) do nothing;
 
 insert into public.coaches (slug, display_name, sort_order) values

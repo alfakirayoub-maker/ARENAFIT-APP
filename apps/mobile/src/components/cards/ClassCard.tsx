@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 
@@ -6,39 +6,44 @@ import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { Text } from '@/components/ui/Text';
-import { formatTime } from '@/lib/format';
+import { coachLabel, hasStarted } from '@/features/planning/session-utils';
+import { useReminderOffsetLabel, useReminderSheet } from '@/features/reminders/ReminderSheet';
+import { useReminders } from '@/features/reminders/store';
 import { colors, radius, spacing } from '@/theme';
-import type { ClassSessionSummary } from '@/types/domain';
+import type { ClassSession } from '@/types/domain';
 
 export type ClassCardProps = {
-  session: ClassSessionSummary;
-  onPress?: () => void;
-  /** Reminder state — a reminder is never a reservation. */
-  reminderSet?: boolean;
-  onToggleReminder?: () => void;
+  session: ClassSession;
 };
 
-/** Schedule row: time column, class info, level and reminder toggle. No booking. */
-export function ClassCard({ session, onPress, reminderSet = false, onToggleReminder }: ClassCardProps) {
+/**
+ * Schedule row: time column, class info, level and reminder bell. Opens the
+ * class detail. No booking — the bell sets a reminder only.
+ */
+export function ClassCard({ session }: ClassCardProps) {
   const { t } = useTranslation();
-  const start = formatTime(session.startsAt);
-  const end = formatTime(session.endsAt);
-  const meta = [session.coachName && `Coach ${session.coachName}`, session.roomName].filter(Boolean).join(' · ');
+  const reminders = useReminders();
+  const reminderSheet = useReminderSheet();
+  const offsetLabel = useReminderOffsetLabel();
+
+  const started = hasStarted(session);
+  const reminder = reminders.offsetFor(session.id);
+  const meta = [coachLabel(session), session.room].filter(Boolean).join(' · ');
+  const inactive = started || session.isCancelled;
 
   return (
-    <View style={[styles.card, session.isCancelled && styles.cancelled]}>
-      {/* The reminder toggle is a sibling, not a child, of the pressable area so
-          both stay separately focusable for screen readers. */}
+    <View style={[styles.card, inactive && styles.inactive]}>
+      {/* The bell is a sibling of the pressable area so both stay separately
+          focusable for screen readers. */}
       <PressableScale
-        onPress={onPress}
-        disabled={!onPress}
+        onPress={() => router.push({ pathname: '/classes/[id]', params: { id: session.id } })}
         scaleTo={0.98}
-        accessibilityLabel={`${session.activityName}, ${start} – ${end}${meta ? `, ${meta}` : ''}`}
+        accessibilityLabel={`${session.activity.name}, ${session.startTime} – ${session.endTime}${meta ? `, ${meta}` : ''}`}
         style={styles.main}>
         <View style={styles.timeCol}>
-          <Text variant="subheading">{start}</Text>
+          <Text variant="subheading">{session.startTime}</Text>
           <Text variant="caption" color="tertiary">
-            {end}
+            {session.endTime}
           </Text>
         </View>
 
@@ -46,29 +51,42 @@ export function ClassCard({ session, onPress, reminderSet = false, onToggleRemin
 
         <View style={styles.body}>
           <Text variant="subheading" numberOfLines={1}>
-            {session.activityName}
+            {session.activity.name}
           </Text>
           {meta.length > 0 && (
             <Text variant="caption" color="secondary" numberOfLines={1}>
               {meta}
             </Text>
           )}
-          <Badge label={t(`levels.${session.level}`)} />
+          <View style={styles.badges}>
+            {session.isCancelled ? (
+              <Badge label={t('classDetail.cancelled')} tone="error" />
+            ) : started ? (
+              <Badge label={t('planning.finished')} />
+            ) : (
+              <Badge label={t(`levels.${session.level}`)} />
+            )}
+            {reminder !== undefined && !inactive && (
+              <Badge
+                label={t('reminder.activeLabel', { offset: offsetLabel(reminder) })}
+                tone="accent"
+                icon="notifications"
+              />
+            )}
+          </View>
         </View>
-
-        {session.imageUrl && (
-          <Image source={session.imageUrl} style={styles.thumb} contentFit="cover" transition={200} accessible={false} />
-        )}
       </PressableScale>
 
-      {onToggleReminder && (
-        <IconButton
-          icon={reminderSet ? 'notifications' : 'notifications-outline'}
-          accessibilityLabel={reminderSet ? t('reminder.set') : t('reminder.cta')}
-          active={reminderSet}
-          onPress={onToggleReminder}
-          size={40}
-        />
+      {!inactive && (
+        <View style={styles.bell}>
+          <IconButton
+            icon={reminder !== undefined ? 'notifications' : 'notifications-outline'}
+            accessibilityLabel={reminder !== undefined ? t('reminder.set') : t('reminder.cta')}
+            active={reminder !== undefined}
+            onPress={() => reminderSheet.open(session)}
+            size={40}
+          />
+        </View>
       )}
     </View>
   );
@@ -78,15 +96,14 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingRight: spacing.lg,
     borderRadius: radius.xl,
     backgroundColor: colors.surface,
   },
+  inactive: { opacity: 0.55 },
   main: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg },
-  cancelled: { opacity: 0.5 },
   timeCol: { width: 52, gap: spacing.xxs },
   divider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', backgroundColor: colors.border },
   body: { flex: 1, gap: spacing.xs },
-  thumb: { width: 52, height: 52, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  bell: { paddingRight: spacing.lg },
 });

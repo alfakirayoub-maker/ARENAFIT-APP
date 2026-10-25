@@ -8,12 +8,17 @@ import {
   Inter_800ExtraBold,
   useFonts,
 } from '@expo-google-fonts/inter';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { DarkTheme, ThemeProvider, type Theme } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
+import { ToastProvider } from '@/components/ui/Toast';
+import { queryClient } from '@/data/queries';
+import { ReminderSheetProvider } from '@/features/reminders/ReminderSheet';
+import { SessionProvider } from '@/features/session/session';
 import { colors } from '@/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -49,11 +54,19 @@ export default function RootLayout() {
   if (!ready) return null;
 
   return (
-    <ThemeProvider value={navigationTheme}>
-      <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
-        <Stack.Screen name="(tabs)" />
-      </Stack>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <SessionProvider>
+        <ThemeProvider value={navigationTheme}>
+          <ToastProvider>
+            <ReminderSheetProvider>
+              <StatusBar style="light" />
+              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+                <Stack.Screen name="(tabs)" />
+              </Stack>
+            </ReminderSheetProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </SessionProvider>
+    </QueryClientProvider>
   );
 }

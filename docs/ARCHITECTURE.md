@@ -1,6 +1,6 @@
 # Arena Fit — Technical architecture
 
-Status: Sprint 1 (foundation) done. This document is the reference for the
+Status: Sprint 2 (screens on dev fixtures) done, awaiting review. This document is the reference for the
 next sprints. Product requirements live in the master build brief. This
 document only covers how the product is built.
 
@@ -39,8 +39,10 @@ document only covers how the product is built.
 | Type | Inter (via `@expo-google-fonts/inter`). Swap for the brand font if Arena Fit has one |
 | Motion | Reanimated 4 (press scale, staggered entrance, skeleton pulse). Respects reduced motion |
 | i18n | i18next + react-i18next + expo-localization. FR is the source, AR/EN typed against it |
-| Data (Sprint 3) | `@supabase/supabase-js` + TanStack Query. Zod at the boundary (RPC payloads, deep-link params) |
-| Session storage (Sprint 3) | `expo-secure-store` (token) / AsyncStorage (query cache persistence) |
+| Data | TanStack Query over a `ContentRepository` interface (`src/data/`). Fixture implementation now, Supabase implementation in Sprint 3. Zod at the boundary (RPC payloads, deep-link params) |
+| Local state | AsyncStorage-backed stores (`src/lib/persisted-store.ts`) for favorites, reminders and notification preferences. No account needed |
+| Session storage (Sprint 3+) | `expo-secure-store` for the auth token, created only for guests and members |
+| Config | `src/config/env.ts`: `EXPO_PUBLIC_*` variables (invite base URL, Branch key, Supabase). See `.env.example` |
 | Notifications (Sprint 4) | `expo-notifications`: local reminders + Expo push tokens |
 
 ### Folder structure
@@ -57,23 +59,28 @@ apps/mobile/
       (tabs)/           Accueil · Planning · Activités · Actualités · Profil
         _layout.tsx
         index.tsx  planning.tsx  activites.tsx  actualites.tsx  profil.tsx
+      classes/[id].tsx  activities/[slug].tsx  coaches/[slug].tsx  news/[slug].tsx
+      pass/index.tsx    Profil › Pass & Invitations (members)
+      settings/notifications.tsx  settings/account.tsx  help.tsx  login.tsx
       dev/ui.tsx        design-system gallery (dev builds only)
       +not-found.tsx
-      # upcoming: classes/[id].tsx, activities/[slug].tsx, coaches/[slug].tsx,
-      #   news/[slug].tsx, pass/index.tsx, pass/offer.tsx, invite/[token].tsx,
-      #   guest/index.tsx, settings/*.tsx
+      # upcoming: invite/[token].tsx, guest/index.tsx (Sprint 5)
     components/
-      ui/               primitives: Text, Button, IconButton, Chip, Badge, Card,
-                        Screen, ScreenHeader, SectionHeader, Skeleton, EmptyState,
-                        PressableScale, FadeIn, Icon
-      cards/            ClassCard, MediaCard (+ NewsCard, CoachCard, GuestPassCard…)
-      brand/            Logo (official file only)
+      ui/               primitives: Text, Button, IconButton, Chip, ChipRow, Badge, Card,
+                        Avatar, ListRow/ListGroup, InfoTile, IntensityMeter, BottomSheet,
+                        Toast, Screen, DetailScreen, ScreenHeader, SectionHeader,
+                        Skeleton, EmptyState, ErrorState, PressableScale, FadeIn, Icon
+      cards/            ClassCard, NextClassCard, MediaCard, NewsCard, CoachCard,
+                        GuestPassCard, MembershipCard
+      planning/         WeekSelector, SessionList
+      brand/            Logo (official file only), Artwork (photo slot + category fallback)
       navigation/       TabBar
-    features/           (Sprint 2+) one folder per domain: planning/, activities/,
-                        news/, profile/, guest-pass/, reminders/
-                        each with api.ts (queries), hooks.ts, components/
+    config/             env.ts (public runtime config)
+    data/               repository interface, fixture repository, query hooks
+    dev/fixtures/       DEVELOPMENT ONLY mock data (see header of each file)
+    features/           session/, favorites/, reminders/, planning/, settings/
     i18n/               index.ts, locales/{fr,en,ar}.ts, typed keys
-    lib/                haptics, date/time formatting (club timezone), supabase client
+    lib/                club-time (club-local calendar), persisted-store, haptics
     theme/              tokens
     types/              UI view models (mirror the DB schema)
 ```
@@ -92,13 +99,33 @@ the browser `BarcodeDetector` API with a small JS fallback (e.g. `@zxing/browser
 ## 4. Data model
 
 Source of truth: `supabase/migrations/20261025000000_initial_schema.sql`
-(tested against Postgres 16 with RLS smoke tests). Seed:
-`supabase/seed.sql` (the real coach roster: 7 coaches, 19 activities, 28
-coach↔activity links).
+(tested against Postgres 16 with RLS smoke tests).
+
+| File | Contents |
+| --- | --- |
+| `supabase/seed.sql` | **Production.** Only Arena Fit facts: the 7 coaches, 19 classes, 28 coach↔class links, club timezone and the initial allowance of 3 Guest Passes. Unknown fields stay NULL |
+| `supabase/fixtures/dev.sql` | **Development only.** `[DEMO]` rooms and a mock weekly schedule built from real coach↔class pairings |
+| `apps/mobile/src/dev/fixtures/` | **Development only.** The same mock schedule plus mock descriptions, news, member and invitations for the app |
+
+### Schedule time model
+
+Classes are club-local wall-clock times: `class_sessions.session_date` (date)
++ `start_time` / `end_time` (time), interpreted in `Africa/Casablanca`. A class
+"at 18:00" stays at 18:00 whatever Morocco's UTC offset is (standard time,
+Ramadan switch, or any future rule change). The app displays these values as-is
+and never converts them. Absolute instants are derived only when needed
+(reminder scheduling, push timing) with `club_instant(date, time)` and the
+PostgREST computed fields `starts_at` / `ends_at`. Classes never span midnight.
+
+Note on tz data: the server's tzdata (2026e) and Node's bundled ICU currently
+disagree about Morocco's offset since 20 Sep 2026 (UTC+0 vs UTC+1). Wall-clock
+storage makes the planning immune to that. Sprint 4 must compute reminder
+fire times from the club wall-clock time in a way that does not depend on stale
+device tz data (see risks).
 
 | Area | Tables |
 | --- | --- |
-| Identity | `profiles` (kind: visitor / guest / member), `admin_users` (admin / reception) |
+| Identity | `profiles` (kind: guest / member; created only when an identity is needed), `admin_users` (admin / reception) |
 | Membership | `memberships` (plan name, type, validity; managed by admins) |
 | Catalogue | `coaches`, `activities`, `coach_activities`, `rooms` |
 | Planning | `class_sessions` (concrete dated sessions, visibility, cancellation) |
@@ -110,8 +137,9 @@ coach↔activity links).
 Changes from the suggested entity list, and why:
 
 * **`rooms`** was added so the planning filters and admin pickers don't depend on free text.
-* **`class_reminders`** was added. Reminders fire locally on the device, but the backend
-  must know who follows a session to warn them when it moves or is cancelled.
+* **`class_reminders`** was added. Reminders fire locally on the device. For signed-in
+  users the backend can also know who follows a session, to warn them when it moves or is
+  cancelled. Visitors' reminders stay on the device only.
 * **`notification_preferences`** was added as its own table, separate from `profiles`.
 * **Guest-pass "available" is computed, not stored.** Availability = allowance −
   invitations that consume a pass (view `guest_pass_availability`). Stored
@@ -128,16 +156,34 @@ Changes from the suggested entity list, and why:
   `SECURITY DEFINER` RPCs that validate state transitions.
 * Tokens: link and QR tokens are 256-bit random values. Only `sha256(token)` is stored.
 
+### Identity model
+
+* **Visitors** (default) browse Planning, Activities, Coaches, News and club information
+  with **no Supabase user**. Favorites, reminders and notification preferences live on the
+  device.
+* **Guests** get a Supabase identity only when they activate a Guest Pass.
+* **Members**: the activation and sign-in flow is not decided yet. The auth layer must
+  support phone-based sign-in for members imported by the club. Sprint 2 uses dev-only mock
+  member state (`src/features/session/session.tsx`). Release builds are always visitors until
+  real auth lands. No membership sync is built.
+
 ### Guest-pass flow (Sprints 5–6)
 
+Primary path: **Branch deferred deep linking**. No hardcoded domain: the link base
+comes from `EXPO_PUBLIC_INVITE_BASE_URL` and the Branch key from `EXPO_PUBLIC_BRANCH_KEY`.
+
 1. Member → `create_guest_invitation(invitee_name)` → checks availability → returns the raw
-   link token once → `https://<domain>/invite/<token>` shared via the native share sheet.
-2. Invitee opens the link. With the app installed, a universal/app link goes to `invite/[token]`.
-   Without it, a web landing page shows store buttons and a short code to paste after install.
-3. App → `activate_guest_invitation(token)` (anonymous session) → profile becomes `guest`, a
+   link token once → Branch link carrying the token, shared via the native share sheet
+   (WhatsApp first).
+2. Friend opens the link. If the app is installed, it opens `invite/[token]` directly.
+   Otherwise the friend goes to the store, installs, opens Arena Fit, and the Branch SDK
+   returns the original link data on first launch, so the invitation is recovered automatically.
+3. Fallback only if deferred attribution fails: a short invitation code shown on the
+   link's web fallback page, entered once in the app.
+4. App → `activate_guest_invitation(token)` (the guest identity is created here) → profile becomes `guest`, a
    `guest_passes` row is created with a **different** QR token (raw value kept in SecureStore,
    re-issuable via `rotate_guest_pass_qr()`).
-4. Reception → `check_guest_pass(qr)` (read-only verdict: valid / invalid / expired / used /
+5. Reception → `check_guest_pass(qr)` (read-only verdict: valid / invalid / expired / used /
    cancelled + sponsor, expiry) → `redeem_guest_pass(qr)` inserts into `guest_redemptions`
    (unique per pass, so double use is impossible even with concurrent scans) and sets status `used`.
 
@@ -146,41 +192,39 @@ Changes from the suggested entity list, and why:
 | Sprint | Scope | Exit criteria |
 | --- | --- | --- |
 | 1 ✅ | Workspace, Expo Router, tokens, typography, i18n, tab navigation, logo slot, UI primitives, cards, skeletons, empty states, schema and seed | `tsc` clean, web/Android bundle exports, UI kit renders with no console errors |
-| 2 | Home, Planning (week selector + filters), Class detail, Activities, Coaches, News list/detail, Profile. Typed local fixtures based on the real roster | All screens navigable with realistic data, plus loading and empty states |
-| 3 | Supabase client, anonymous session bootstrap, member login (email OTP), TanStack Query data layer, generated DB types, swap fixtures for live data | App runs against a Supabase project, and RLS is verified from the client |
+| 2 ✅ | Home, Planning (week selector + filters), Class detail, Activities, Coaches, News list/detail, Profile, Pass & Invitations UI, local reminders/favorites. Dev fixtures based on the real roster | All screens navigable with realistic data, plus loading, empty and error states |
+| 3 | Supabase repository (public content, no login), generated DB types. Member auth once the activation flow is decided (phone-based / imported members) | App runs against a Supabase project as a visitor, and RLS is verified from the client |
 | 4 | Reminders (local scheduling, 15/30/60/120 min, server mirror), push token registration, notification preferences, schedule-change pushes (Edge Function) | Reminder fires on device, and a changed session re-notifies followers |
-| 5 | Guest-pass RPCs, offer/share flow, invitation list and states, deep links, Guest Mode gating | End-to-end: member shares → guest activates → QR shown |
+| 5 | Guest-pass RPCs, offer/share flow, Branch deferred deep linking (+ code fallback), invitation states, Guest Mode gating | End-to-end: member shares → guest activates → QR shown |
 | 6 | Admin app scaffold and auth, `/reception/scanner`, check/redeem RPCs | A pass can't be redeemed twice. All verdict screens done |
 | 7 | Admin CRUD: planning (duplicate session/week), coaches (photo upload), activities, news (publish/unpublish), notifications, members, guest passes, settings | Admin changes show up in the app |
 | 8 | Tests (RLS/pgTAP, RPC, component), error boundaries, performance, a11y pass, security review, EAS builds | Release candidates for Android and iOS |
 
-## 6. Risks and decisions to confirm
+## 6. Risks and open points
 
-1. **Official logo and brand color were not supplied.** The `Logo` component shows a
-   neutral "LOGO" placeholder and never an imitation. `colors.primary` (#C6F432) is
-   provisional. App icon and splash are still Expo placeholders. *Needed before Sprint 2 sign-off.*
-2. **Invitation links when the app is not installed.** Neither OS carries a deep link
-   through an App Store install. Proposed: a small web landing page on the club domain
-   (served by the admin Next.js app) with store links and a short invitation code the
-   guest enters once in the app. Universal/App Links need a domain we control
-   (`apple-app-site-association`, `assetlinks.json`). *Needs: the domain to use.*
-3. **Anonymous auth for every install.** Proposed so that favorites, reminders, push
-   tokens and Guest Mode all key off a real `auth.uid()` without forcing sign-up.
-   Caveat: when an existing member logs in, the anonymous user's favorites are copied
-   over by the app rather than merged by Supabase.
-4. **How members get accounts.** There is no link to the club's membership system. Proposed:
-   admins create or import members (email or phone), and members sign in with an OTP.
-   *Confirm email vs. phone (SMS cost) and who keeps membership expiry up to date.*
-5. **Timezone.** Planning is stored as `timestamptz` and shown in club time
-   (`Africa/Casablanca`, assumed from context). *Confirm the club location.*
-6. **Recurring schedule.** The MVP stores concrete sessions, and the admin duplicates days
-   or weeks. Recurrence rules (RRULE) were left out to keep editing and cancellations simple.
-7. **Remote push needs a development build.** Expo Go can't receive remote push, so EAS
-   development builds are needed from Sprint 4.
+1. **Logo file not received in the dev environment.** The logo green (#80B918) is now the
+   `brand` token, and the brighter lime stays for CTAs and active states. The `Logo` component
+   still shows a neutral placeholder until the file is committed to
+   `apps/mobile/assets/brand/` and wired in `logo-source.ts` (rendered as-is, never recolored).
+   App icon and splash are still Expo placeholders.
+2. **No photography yet.** Image slots exist everywhere (`imageUrl` / `coverUrl` / `photoUrl`).
+   Until club photos are uploaded, `Artwork` shows a category-tinted placeholder.
+3. **Branch setup** needs a Branch account, the final domain, iOS associated domains and
+   Android intent filters (config plugin) in the Guest Pass sprint. Branch's React Native
+   SDK needs a development build, not Expo Go.
+4. **Member authentication** is pending your decision (before Sprint 3 auth work).
+5. **Reminder fire times vs. device tz data** (Sprint 4). Device tz databases can lag behind
+   Morocco's rule changes. Options: schedule from the server-computed instant
+   (`starts_at`), or from wall-clock components when the device is set to
+   Africa/Casablanca. To decide in Sprint 4.
+6. **Activity categories** of club-specific formats are inferred from names. They're flagged
+   for club review in `seed.sql`.
+7. **Recurring schedule.** The MVP stores concrete sessions, and the admin duplicates days
+   or weeks.
 8. **Admin app in the same workspace.** Next.js and React Native must agree on the hoisted
-   `react` version (19.3.0 today). If they drift, the admin app gets its own install
-   (`installConfig`/nohoist) instead.
-9. **Durations and extra rooms in the seed** (only "Studio Cycling" was given) are
-   placeholders, marked as such in `seed.sql`.
-10. **Arabic translations** are a draft and need a native review. RTL layout gets QA'd
-    before AR ships. The app is pinned to French until then.
+   `react` version. Otherwise the admin app gets its own install.
+9. **Arabic translations** are a draft and need a native review. RTL layout gets QA'd
+   before AR ships. The app is pinned to French until then.
+10. **Guest Pass rules not yet set:** invitation-link validity, pass validity, and whether an
+    expired, never-activated invitation gives the pass back (currently defaults to yes in
+    the `guest_pass_availability` view). To decide before Sprint 5.

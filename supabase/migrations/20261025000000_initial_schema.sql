@@ -2,8 +2,11 @@
 -- Arena Fit — initial data model
 --
 -- Conventions
---   * All timestamps are timestamptz. The club timezone lives in app_settings
---     ('club.timezone') and is applied for display only.
+--   * Audit timestamps (created_at, redeemed_at…) are timestamptz.
+--   * The planning is club-local wall-clock time (date + time, Africa/Casablanca).
+--     A class "at 18:00" stays at 18:00 across Morocco's DST / Ramadan offset
+--     changes; absolute instants are derived with club_instant() when needed
+--     (reminders, push scheduling).
 --   * Every table has created_at / updated_at (updated_at maintained by trigger).
 --   * Secrets (invitation link tokens, QR tokens) are NEVER stored in clear:
 --     only their SHA-256 hash. The raw token is returned once by an RPC.
@@ -20,7 +23,7 @@ create extension if not exists pgcrypto with schema extensions;
 -- Enums
 -- -----------------------------------------------------------------------------
 
-create type public.profile_kind as enum ('visitor', 'guest', 'member');
+create type public.profile_kind as enum ('guest', 'member');
 create type public.staff_role as enum ('admin', 'reception');
 create type public.membership_status as enum ('active', 'expired', 'suspended');
 
@@ -70,12 +73,12 @@ $$;
 -- Identity: profiles, staff
 -- -----------------------------------------------------------------------------
 
--- One row per auth user. Every install signs in anonymously first (kind =
--- 'visitor'); activating a guest invitation promotes to 'guest'; an admin
--- links a real member account to 'member'.
+-- One row per auth user. Browsing the app needs no account: a Supabase user
+-- is created only when an identity is actually needed — activating a guest
+-- pass (kind = 'guest') or member sign-in (kind = 'member').
 create table public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
-  kind public.profile_kind not null default 'visitor',
+  kind public.profile_kind not null default 'guest',
   first_name text,
   last_name text,
   phone text,
@@ -193,7 +196,7 @@ create table public.activities (
   equipment text[] not null default '{}',
   target_muscles text[] not null default '{}',
   recommended_for text,
-  default_duration_min smallint not null default 60 check (default_duration_min > 0),
+  default_duration_min smallint check (default_duration_min > 0),
   image_path text,                         -- storage: activities/<file>
   is_featured boolean not null default false,
   is_active boolean not null default true,
@@ -225,16 +228,32 @@ create table public.rooms (
 -- Planning
 -- -----------------------------------------------------------------------------
 
--- Concrete, dated sessions (no recurrence rules in the MVP — the admin
--- duplicates sessions / weeks instead). There is no booking: a session is
--- information only.
+-- The club's timezone. Planning times are wall-clock times in this zone.
+create or replace function public.club_time_zone()
+returns text
+language sql
+immutable
+as $$ select 'Africa/Casablanca' $$;
+
+-- Absolute instant of a club-local date + time, using the tz database's
+-- current rules for Morocco (incl. the Ramadan switch to UTC+0).
+create or replace function public.club_instant(d date, t time)
+returns timestamptz
+language sql
+stable
+as $$ select (d + t) at time zone public.club_time_zone() $$;
+
+-- Concrete, dated sessions in club-local time (no recurrence rules in the
+-- MVP — the admin duplicates sessions / weeks instead). Classes never span
+-- midnight. There is no booking: a session is information only.
 create table public.class_sessions (
   id uuid primary key default gen_random_uuid(),
   activity_id uuid not null references public.activities (id) on delete restrict,
   coach_id uuid references public.coaches (id) on delete set null,
   room_id uuid references public.rooms (id) on delete set null,
-  starts_at timestamptz not null,
-  ends_at timestamptz not null,
+  session_date date not null,
+  start_time time not null,
+  end_time time not null,
   level public.class_level not null default 'all_levels',
   description text,                        -- overrides activity description
   visibility public.session_visibility not null default 'public',
@@ -243,12 +262,25 @@ create table public.class_sessions (
   created_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check (ends_at > starts_at)
+  check (end_time > start_time)
 );
-create index class_sessions_starts_at_idx on public.class_sessions (starts_at)
+create index class_sessions_date_idx on public.class_sessions (session_date, start_time)
   where visibility <> 'hidden';
-create index class_sessions_activity_idx on public.class_sessions (activity_id, starts_at);
-create index class_sessions_coach_idx on public.class_sessions (coach_id, starts_at);
+create index class_sessions_activity_idx on public.class_sessions (activity_id, session_date);
+create index class_sessions_coach_idx on public.class_sessions (coach_id, session_date);
+
+-- Computed fields (PostgREST exposes them as `starts_at` / `ends_at`).
+create or replace function public.starts_at(s public.class_sessions)
+returns timestamptz
+language sql
+stable
+as $$ select public.club_instant(s.session_date, s.start_time) $$;
+
+create or replace function public.ends_at(s public.class_sessions)
+returns timestamptz
+language sql
+stable
+as $$ select public.club_instant(s.session_date, s.end_time) $$;
 
 -- -----------------------------------------------------------------------------
 -- Member preferences
