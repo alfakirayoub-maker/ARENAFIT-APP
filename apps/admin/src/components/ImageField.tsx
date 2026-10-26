@@ -4,10 +4,10 @@ import { useRef, useState } from 'react';
 
 import { messageFor } from '@/lib/errors';
 import { publicImageUrl, uploadImage } from '@/lib/admin/storage';
-import type { ImageBucket } from '@/lib/images';
+import { isPresentationImage, type ImageBucket } from '@/lib/images';
 import { getBrowserClient } from '@/lib/supabase/browser';
 
-import { Button } from './ui';
+import { Badge, Button } from './ui';
 
 /**
  * Optional image (coach photo, activity cover, news cover, class override).
@@ -56,6 +56,11 @@ export function ImageField({
         <div className={`preview${round ? ' round' : ''}`} style={url ? { backgroundImage: `url("${url}")` } : undefined}>
           {!url && 'Aucune image'}
         </div>
+        {isPresentationImage(value) && (
+          <span className="faint small" style={{ maxWidth: 260 }}>
+            <Badge tone="warning">Photo de démo</Badge> Visuel temporaire de présentation — remplacez-le par une photo du club.
+          </span>
+        )}
         <div className="row">
           <Button size="sm" loading={busy} onClick={() => input.current?.click()}>
             {url ? 'Remplacer' : 'Ajouter une image'}

@@ -198,3 +198,13 @@ describe('audit log display', () => {
     assert.equal(changedFields({}), null);
   });
 });
+
+describe('presentation photos', () => {
+  it('are recognised by their storage prefix only', async () => {
+    const { isPresentationImage } = await import('../src/lib/images.ts');
+    assert.equal(isPresentationImage('presentation/strength.jpg'), true);
+    assert.equal(isPresentationImage('photos/abc.jpg'), false);
+    assert.equal(isPresentationImage('covers/presentation/x.jpg'), false);
+    assert.equal(isPresentationImage(null), false);
+  });
+});

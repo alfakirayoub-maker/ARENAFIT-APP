@@ -54,12 +54,16 @@ describe('Supabase content repository', { skip }, () => {
     assert.equal(coaches.find((c) => c.displayName === 'ANAS L')?.activityIds.length, 4);
   });
 
-  it('lists activities with nullable details and no image URL when no image exists', async () => {
+  it('lists activities with nullable details; an image is either absent or a public Storage URL', async () => {
     const activities = await repo!.listActivities();
     assert.equal(activities.length, 19);
     const synergy = activities.find((a) => a.slug === 'arenas-synergy');
     assert.equal(synergy?.description, null);
-    assert.equal(synergy?.imageUrl, null);
+    // null without photo (production seed); a presentation environment may attach
+    // temporary photos (presentation/README.md). Never any other kind of URL.
+    for (const a of activities) {
+      assert.ok(a.imageUrl === null || /\/storage\/v1\/object\/public\/activities\/[\w/.-]+$/.test(a.imageUrl), a.imageUrl ?? '');
+    }
   });
 
   it('lists a week of sessions in club-local order with HH:MM times', async () => {

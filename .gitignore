@@ -8,3 +8,6 @@ supabase/.branches
 supabase/.temp
 # Local API stack state (generated JWT secret, keys, test member password)
 .local-stack/
+
+# Raw presentation photo downloads (prepared copies live in presentation/images/)
+presentation/source/

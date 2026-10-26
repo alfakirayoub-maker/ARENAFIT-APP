@@ -1,0 +1,47 @@
+{
+  "$comment": "Temporary presentation photography. Not Arena Fit photos. Applied to Storage only where no real image exists; replaced by uploading a real photo in the dashboard. See presentation/README.md.",
+  "storagePrefix": "presentation/",
+  "images": {
+    "strength": { "file": "strength.jpg", "subject": "barbell / loaded strength work, low-key light" },
+    "hiit": { "file": "hiit.jpg", "subject": "explosive cardio / functional training" },
+    "core": { "file": "core.jpg", "subject": "core work on the floor, plank or similar" },
+    "cycling": { "file": "cycling.jpg", "subject": "indoor cycling studio, moody light" },
+    "mobility": { "file": "mobility.jpg", "subject": "stretching / mobility, calm" },
+    "combat": { "file": "combat.jpg", "subject": "boxing / combat fitness" },
+    "club": { "file": "club.jpg", "subject": "premium gym floor, no people or few, no logos" },
+    "recovery": { "file": "recovery.jpg", "subject": "recovery / wellness, calm and minimal" }
+  },
+  "activities": {
+    "byCategory": {
+      "fitness": "strength",
+      "cycling": "cycling",
+      "mind_body": "mobility",
+      "combat": "combat",
+      "dance": "hiit",
+      "aqua": "recovery",
+      "kids": "hiit"
+    },
+    "bySlug": {
+      "body-attack": "hiit",
+      "cardio-mix": "hiit",
+      "circuit-training": "hiit",
+      "fitness-challenge": "hiit",
+      "grit-force": "hiit",
+      "core": "core",
+      "sprint-core": "core",
+      "core-mobility": "core"
+    }
+  },
+  "news": {
+    "byCategory": {
+      "schedule": "club",
+      "challenge": "hiit",
+      "wellness": "recovery",
+      "event": "club",
+      "offer": "strength",
+      "equipment": "club",
+      "kids": "hiit",
+      "announcement": "club"
+    }
+  }
+}

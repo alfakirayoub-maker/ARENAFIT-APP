@@ -12,7 +12,10 @@
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "db:test": "scripts/db/test.sh",
-    "local-stack": "scripts/local-stack/up.sh"
+    "local-stack": "scripts/local-stack/up.sh",
+    "presentation:prepare": "python3 scripts/presentation/prepare.py",
+    "presentation:apply": "node scripts/presentation/images.mjs apply",
+    "presentation:remove": "node scripts/presentation/images.mjs remove"
   },
   "devDependencies": {
     "jsqr": "^1.4.0",

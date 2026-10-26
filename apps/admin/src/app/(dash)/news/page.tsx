@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { RequireCapability } from '@/components/Staff';
+import { Thumb } from '@/components/Thumb';
 import { Badge, Empty, LoadError, PageHeader, Skeleton } from '@/components/ui';
 import { useNewsList } from '@/lib/admin/hooks';
 import { newsState, type NewsState } from '@/lib/admin/news';
@@ -48,6 +49,7 @@ function NewsPageContent() {
           <table className="table">
             <thead>
               <tr>
+                <th aria-label="Image" />
                 <th>Titre</th>
                 <th>Catégorie</th>
                 <th>Statut</th>
@@ -60,6 +62,9 @@ function NewsPageContent() {
                 const st = STATE_BADGE[newsState(n)];
                 return (
                   <tr key={n.id} className="link" onClick={() => router.push(`/news/${n.id}`)}>
+                    <td className="thumb-cell">
+                      <Thumb bucket="news" path={n.cover_path} />
+                    </td>
                     <td style={{ fontWeight: 600 }}>
                       <Link href={`/news/${n.id}`}>{n.title}</Link>
                     </td>

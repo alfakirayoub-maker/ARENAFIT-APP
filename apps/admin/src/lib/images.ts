@@ -8,6 +8,14 @@ export type ImageBucket = (typeof IMAGE_BUCKETS)[number];
 
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Temporary presentation photography (presentation/README.md) lives under this
+ * prefix. Shown like any image, but flagged « Photo de démo » so staff know to
+ * replace it with a real Arena Fit photo.
+ */
+export const PRESENTATION_PREFIX = 'presentation/';
+export const isPresentationImage = (key: string | null | undefined): boolean => !!key && key.startsWith(PRESENTATION_PREFIX);
+
 const KINDS = {
   'image/jpeg': { ext: 'jpg', magic: (b: Uint8Array) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
   'image/png': {
