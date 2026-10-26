@@ -15,7 +15,8 @@
     "local-stack": "scripts/local-stack/up.sh",
     "presentation:prepare": "python3 scripts/presentation/prepare.py",
     "presentation:apply": "node scripts/presentation/images.mjs apply",
-    "presentation:remove": "node scripts/presentation/images.mjs remove"
+    "presentation:remove": "node scripts/presentation/images.mjs remove",
+    "staging": "node scripts/staging/staging.mjs"
   },
   "devDependencies": {
     "jsqr": "^1.4.0",

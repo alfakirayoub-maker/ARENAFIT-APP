@@ -39,14 +39,18 @@ echo "▸ production seed"
 run_sql "$ROOT/supabase/seed.sql"
 
 echo "▸ pgTAP"
+# Tests run from a readable copy. The staging presentation reset is handed to
+# its test as the psql variable :staging_reset (supabase/staging/presentation.sql).
+tmp="$(mktemp -d)"; cp "$ROOT"/supabase/tests/*.test.sql "$ROOT/supabase/staging/presentation.sql" "$tmp"
+printf '\\set staging_reset `cat %s/presentation.sql`\n' "$tmp" > "$tmp/staging_reset.psql"
+chmod -R a+rX "$tmp"
 if [[ -n "$TARGET_URL" ]]; then
-  pg_prove -d "$TARGET_URL" "$ROOT"/supabase/tests/*.test.sql
+  pg_prove -d "$TARGET_URL" "$tmp"/*.test.sql
 else
   # pg_prove needs to read the test files as the postgres user.
-  tmp="$(mktemp -d)"; cp "$ROOT"/supabase/tests/*.test.sql "$tmp"; chmod -R a+rX "$tmp"
   sudo -u postgres pg_prove -d "$DB" "$tmp"/*.test.sql
-  rm -rf "$tmp"
 fi
+rm -rf "$tmp"
 
 echo "▸ dev fixtures load check"
 run_sql "$ROOT/supabase/fixtures/dev.sql"

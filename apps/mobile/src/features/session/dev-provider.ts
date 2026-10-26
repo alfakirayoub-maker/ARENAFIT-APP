@@ -30,6 +30,7 @@ export function createDevAuthProvider(base: AuthProvider): AuthProvider {
       await base.signOut();
     },
     dev: {
+      kind: 'development',
       choices: ['visitor', 'member-demo', ...(identity && testEmail && testPassword ? (['member-test'] as const) : [])],
       async select(choice: DevSessionChoice) {
         await base.signOut();

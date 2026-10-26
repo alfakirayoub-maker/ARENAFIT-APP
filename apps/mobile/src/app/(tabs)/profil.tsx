@@ -155,17 +155,22 @@ export default function ProfileScreen() {
         </ListGroup>
       </View>
 
-      {dev && <DevTools session={session} choices={dev.choices} onChange={(c) => void dev.select(c)} />}
+      {dev && <DevTools staging={dev.kind === 'staging'} session={session} choices={dev.choices} onChange={(c) => void dev.select(c)} />}
     </Screen>
   );
 }
 
-/** Development-only: visitor, demo member (fixtures) or the local test member (real Supabase user). */
+/**
+ * Development: visitor, demo member (fixtures) or the local test member (real Supabase user).
+ * Staging demo builds: visitor or the staging demo member (real Supabase user) only.
+ */
 function DevTools({
+  staging,
   session,
   choices,
   onChange,
 }: {
+  staging: boolean;
   session: Session;
   choices: DevSessionChoice[];
   onChange: (choice: DevSessionChoice) => void;
@@ -175,15 +180,24 @@ function DevTools({
     session.kind === 'visitor' ? 'visitor' : session.kind === 'member' ? (session.demo ? 'member-demo' : 'member-test') : null;
   return (
     <View style={styles.section}>
-      <SectionHeader title={t('profile.dev')} />
+      <SectionHeader title={t(staging ? 'profile.stagingDemo' : 'profile.dev')} />
       <Text variant="caption" color="tertiary" style={styles.devHint}>
-        {t('profile.devSession')}
+        {t(staging ? 'profile.stagingDemoHint' : 'profile.devSession')}
       </Text>
       <ChipRow
-        options={choices.map((c) => ({ value: c, label: t(`profile.devChoices.${c}`) }))}
+        options={choices.map((c) => ({ value: c, label: t(staging ? `profile.stagingChoices.${c}` : `profile.devChoices.${c}`) }))}
         value={current ?? ('' as DevSessionChoice)}
         onChange={onChange}
       />
+      {!staging && <DevDetails />}
+    </View>
+  );
+}
+
+function DevDetails() {
+  const { t } = useTranslation();
+  return (
+    <>
       <Text variant="caption" color="tertiary" style={styles.devHint}>
         {t('profile.devDataSource')} : {dataSource}
       </Text>
@@ -191,7 +205,7 @@ function DevTools({
       <View style={styles.devButton}>
         <Button label="UI kit" variant="ghost" icon="color-palette-outline" onPress={() => router.push('/dev/ui')} />
       </View>
-    </View>
+    </>
   );
 }
 

@@ -37,9 +37,12 @@ const releaseProvider: AuthProvider = supabaseAuthProvider ?? visitorAuthProvide
  * member and test credentials — out of release bundles.
  */
 export const authProvider: AuthProvider =
-  // NODE_ENV (inlined at build time, unlike __DEV__) lets Metro drop the
-  // dev-only branch and its require from release bundles.
+  // NODE_ENV and EXPO_PUBLIC_* are inlined at build time (unlike __DEV__), so
+  // Metro drops the branches — and their requires — a build doesn't use.
   process.env.NODE_ENV !== 'production'
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dev-only module, excluded from release bundles
-  ? (require('./dev-provider') as typeof import('./dev-provider')).createDevAuthProvider(releaseProvider)
-  : releaseProvider;
+    ? // eslint-disable-next-line @typescript-eslint/no-require-imports -- dev-only module, excluded from release bundles
+      (require('./dev-provider') as typeof import('./dev-provider')).createDevAuthProvider(releaseProvider)
+    : process.env.EXPO_PUBLIC_STAGING_DEMO_SIGNIN === '1'
+      ? // eslint-disable-next-line @typescript-eslint/no-require-imports -- staging demo builds only, see staging-provider.ts
+        (require('./staging-provider') as typeof import('./staging-provider')).createStagingDemoAuthProvider(releaseProvider)
+      : releaseProvider;

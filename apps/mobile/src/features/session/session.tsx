@@ -15,7 +15,7 @@ type SessionContextValue = {
   refresh: () => Promise<void>;
   signOut: () => void;
   /** Development only; undefined in release builds. */
-  dev?: { choices: DevSessionChoice[]; select: (choice: DevSessionChoice) => Promise<void> };
+  dev?: { kind: 'development' | 'staging'; choices: DevSessionChoice[]; select: (choice: DevSessionChoice) => Promise<void> };
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -61,6 +61,7 @@ export function SessionProvider({ children, provider = authProvider }: { childre
       },
       dev: provider.dev
         ? {
+            kind: provider.dev.kind,
             choices: provider.dev.choices,
             select: async (choice) => apply(await provider.dev!.select(choice)),
           }

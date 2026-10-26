@@ -206,6 +206,13 @@ const en: Translation = {
     devSession: 'Mock session',
     devDataSource: 'Data source',
     devPermission: 'Simulated notification permission (web)',
+    stagingDemo: 'Demo access',
+    stagingDemoHint: 'Presentation build: member sign-in comes in a later version.',
+    stagingChoices: {
+      visitor: 'Visitor',
+      'member-demo': 'Demo member',
+      'member-test': 'Demo member',
+    },
   },
   login: {
     title: 'Member login',

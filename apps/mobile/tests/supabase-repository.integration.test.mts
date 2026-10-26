@@ -19,7 +19,9 @@ import { clubInstant, clubNow } from '../src/lib/club-clock.ts';
 
 const url = process.env.SUPABASE_TEST_URL;
 const anonKey = process.env.SUPABASE_TEST_ANON_KEY;
-const skip = !url || !anonKey ? 'SUPABASE_TEST_URL / SUPABASE_TEST_ANON_KEY not set' : false;
+// Local stack only: these tests create and delete users and data — never staging/production.
+const local = !!url && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(url);
+const skip = !url || !anonKey ? 'SUPABASE_TEST_URL / SUPABASE_TEST_ANON_KEY not set' : !local ? 'SUPABASE_TEST_URL is not a local stack — integration tests never run against hosted projects' : false;
 
 const client = url && anonKey ? createPublicClient(url, anonKey) : null;
 const repo = client ? createSupabaseRepository(client) : null;

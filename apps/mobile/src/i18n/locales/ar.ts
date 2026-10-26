@@ -207,6 +207,13 @@ const ar: Translation = {
     devSession: 'جلسة تجريبية',
     devDataSource: 'مصدر البيانات',
     devPermission: 'إذن الإشعارات المحاكى (الويب)',
+    stagingDemo: 'وصول تجريبي',
+    stagingDemoHint: 'نسخة عرض: تسجيل دخول الأعضاء سيأتي في إصدار لاحق.',
+    stagingChoices: {
+      visitor: 'زائر',
+      'member-demo': 'عضو تجريبي',
+      'member-test': 'عضو تجريبي',
+    },
   },
   login: {
     title: 'دخول الأعضاء',

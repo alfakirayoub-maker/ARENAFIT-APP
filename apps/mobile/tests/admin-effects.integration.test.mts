@@ -23,7 +23,9 @@ import { buildRecord, planReconciliation } from '../src/features/reminders/logic
 const url = process.env.SUPABASE_TEST_URL;
 const anonKey = process.env.SUPABASE_TEST_ANON_KEY;
 const serviceKey = process.env.SUPABASE_TEST_SERVICE_KEY;
-const skip = !url || !anonKey || !serviceKey ? 'SUPABASE_TEST_URL / _ANON_KEY / _SERVICE_KEY not set' : false;
+// Local stack only: these tests create and delete users and data — never staging/production.
+const local = !!url && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(url);
+const skip = !url || !anonKey || !serviceKey ? 'SUPABASE_TEST_URL / _ANON_KEY / _SERVICE_KEY not set' : !local ? 'SUPABASE_TEST_URL is not a local stack — integration tests never run against hosted projects' : false;
 
 const opts = { auth: { persistSession: false, autoRefreshToken: false } };
 const svc = (): SupabaseClient => createClient(url!, serviceKey!, opts);

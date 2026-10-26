@@ -32,6 +32,8 @@ export interface AuthProvider {
   signOut(): Promise<void>;
   /** Development only. */
   dev?: {
+    /** development: dev builds (fixtures, test member); staging: staging demo builds (demo member sign-in only). */
+    kind: 'development' | 'staging';
     choices: DevSessionChoice[];
     select(choice: DevSessionChoice): Promise<Session>;
   };

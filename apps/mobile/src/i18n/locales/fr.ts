@@ -210,6 +210,13 @@ const fr = {
     },
     devDataSource: 'Source des données',
     devPermission: 'Permission notifications simulée (web)',
+    stagingDemo: 'Accès démo',
+    stagingDemoHint: 'Version de présentation : la connexion des membres arrive dans une prochaine version.',
+    stagingChoices: {
+      visitor: 'Visiteur',
+      'member-demo': 'Membre démo',
+      'member-test': 'Membre démo',
+    },
   },
   login: {
     title: 'Connexion membre',

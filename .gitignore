@@ -11,3 +11,8 @@ supabase/.temp
 
 # Raw presentation photo downloads (prepared copies live in presentation/images/)
 presentation/source/
+
+# Staging presentation credentials (scripts/staging/staging.mjs) and pulled EAS env — never commit
+.env.staging
+.env.staging.*
+.env.preview

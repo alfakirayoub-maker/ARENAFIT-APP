@@ -10,9 +10,9 @@ packages/       shared code: reception-print (station QR print layout, used by t
 supabase/       database migrations, RLS policies, seed data
 docs/           architecture & plan (docs/ARCHITECTURE.md), dev builds & notifications (docs/DEV_BUILD.md),
                 invitation links & Branch (docs/BRANCH.md), reception QR operations (docs/RECEPTION.md),
-                dashboard roles & staff accounts (docs/ADMIN.md)
+                dashboard roles & staff accounts (docs/ADMIN.md), staging & stakeholder demo (docs/STAGING.md)
 scripts/        DB tests (scripts/db), local Supabase-like API (scripts/local-stack),
-                reception QR print assets (scripts/reception)
+                reception QR print assets (scripts/reception), staging demo reset (scripts/staging)
 ```
 
 ## Getting started
@@ -84,3 +84,8 @@ npm run check:bundle          # production build; fails if a secret reached the 
 
 The dashboard uses the anon key and the signed-in staff session only. Roles are
 enforced by the database (RLS + role-checked RPCs); hiding a page is only cosmetic.
+
+## Staging demo
+
+Hosted Supabase staging project, dashboard on Vercel, Android preview APK, presentation data
+and reset: **docs/STAGING.md** (`npm run staging -- init | check | mark-staging | reset`).

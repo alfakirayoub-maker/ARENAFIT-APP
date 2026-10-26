@@ -7,7 +7,11 @@ cd "$(dirname "$0")/.."
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
 
-CI=1 npx expo export --platform android --platform ios --output-dir "$OUT" >/dev/null
+# Canary staging credentials: with the staging flag off they must not reach the
+# bundle (proves the staging demo sign-in module is dropped, not just renamed).
+CANARY_EMAIL="staging-canary-$RANDOM@invalid.test"; CANARY_PASSWORD="canary-$RANDOM$RANDOM"
+EXPO_PUBLIC_STAGING_DEMO_SIGNIN= EXPO_PUBLIC_STAGING_MEMBER_EMAIL="$CANARY_EMAIL" EXPO_PUBLIC_STAGING_MEMBER_PASSWORD="$CANARY_PASSWORD" \
+  CI=1 npx expo export --platform android --platform ios --output-dir "$OUT" >/dev/null
 
 # Strings that only exist in src/dev (fixtures, demo member), the dev session
 # provider, tests, or secrets.
@@ -16,6 +20,7 @@ FORBIDDEN=(
   "createDevAuthProvider" "arenafit:dev-demo-member" "EXPO_PUBLIC_DEV_MEMBER" "arenafit.local"      # dev/test member
   "AF-NOT-A-RECEPTION-QR" "example.com/promo" "EXPO_PUBLIC_DEV_RECEPTION_QR" "Simulation scanner" "Réseau coupé"                         # dev scan simulator
   "service_role" "key_test_"                                                                        # server key, Branch test key
+  "$CANARY_EMAIL" "$CANARY_PASSWORD"                                                                # staging demo sign-in (preview builds only)
   "q3Jx8Yb2mN0pQrStUvWxYz"                                                                          # raw test token (tests/)
 )
 # Actual secret values when present on this machine (never committed): dev
@@ -45,6 +50,6 @@ for bundle in "$OUT"/_expo/static/js/*/entry-*; do
   for s in "${FORBIDDEN[@]}"; do
     if grep -qF "$s" <<<"$text"; then echo "✗ $platform: forbidden string in release bundle: $s"; status=1; fi
   done
-  [[ $status -eq 0 ]] && echo "✓ $platform release bundle: no fixtures, no demo/test member or dev credentials, no dev reception QR, no test tokens, no Branch test key, no service-role key"
+  [[ $status -eq 0 ]] && echo "✓ $platform release bundle: no fixtures, no demo/test member or dev credentials, no dev reception QR, no test tokens, no Branch test key, no service-role key, no staging demo sign-in"
 done
 exit $status
