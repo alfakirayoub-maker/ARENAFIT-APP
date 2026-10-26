@@ -496,3 +496,94 @@ src/app/+native-intent.tsx  every incoming URL → validated app path
   Rotation keeps the station row: history and analytics stay attached. Procedure and
   print assets: `docs/RECEPTION.md`, `scripts/reception/station-qr.mjs` (A5 + A6, PDF,
   decode check).
+
+## 11. Admin dashboard (Sprint 7)
+
+`apps/admin` — Next.js 16 (App Router), TypeScript, TanStack Query, Zod; desktop-first,
+usable on a tablet for reception. No second backend: the browser talks to Supabase with
+the **anon key + the staff member's session**; the service-role key never reaches it
+(`npm run check:bundle` builds for production and fails if it — or a station QR payload,
+local credentials or a Branch test key — appears in client output).
+
+### Roles (migration `20261028000000_admin_dashboard.sql`)
+
+* `admin_users.role` ∈ `admin | content_manager | reception`; helpers
+  `current_staff_role()`, `is_staff()`, `can_manage_content()`, `can_view_guest_passes()`.
+* `admin_users` has no write policy for signed-in users: nobody can grant or raise a role
+  from any app (owner does it in the Supabase project — `docs/ADMIN.md`).
+* Policies on coaches, activities, coach_activities, rooms, class_sessions, news and the
+  content storage buckets use `can_manage_content()`; staff also read inactive/hidden/draft
+  rows. `delete` on coaches and activities is revoked (deactivate instead — history stays).
+* Guest tables are readable through role-checked RPCs only; reception gets the safe
+  lifecycle view, never tokens, hashes or guest identities.
+* The UI mirrors the matrix (`src/lib/roles.ts`) for navigation only. Each page renders its
+  queries inside `RequireCapability`, so a role never even sends a request for a section it
+  can't see; the database refuses it anyway (`42501`).
+
+### Server operations (SECURITY DEFINER, `search_path = ''`, role checked first)
+
+`admin_whoami`, `admin_dashboard_stats` (figures nulled for roles that can't see that
+section), `admin_duplicate_session(id, dates[])` (skips an identical existing slot, ≤ 62
+dates; no recurrence engine), `admin_set_coach_activities`, `admin_list_guest_invitations`,
+`admin_guest_invitation_detail`, `admin_cancel_guest_invitation` (admin),
+`admin_list_members` (admin; name, membership, allowance, invitation count),
+`admin_list_reception_stations` (admin + reception), `admin_create_reception_station`,
+`admin_rotate_reception_station`, `admin_set_reception_station_active` (admin),
+`admin_list_audit_log` (admin). Plain content edits are ordinary RLS-checked table writes.
+
+### Planning = club wall-clock
+
+Session date/time are stored and edited as Casablanca wall-clock values — never converted
+through UTC. Inputs are 24 h text (« 18h30 », « 1830 » accepted and normalised to `18:30`) so
+a browser in an English locale can't show AM/PM. Timestamps (audit, publication, passes)
+are displayed with the same controlled offsets as the app (`src/lib/club-clock.ts`, a copy
+of the mobile module; a unit test checks it against `club_utc_offsets` in SQL). A coach not
+usually teaching an activity is a warning, never a block. Cancel keeps the session visible
+as « Annulé » in the app's week view (excluded from « à venir »); « Masqué » removes it.
+
+### Effects in the member app (tested in `apps/mobile/tests/admin-effects.integration.test.mts`)
+
+Moving a class 18:00 → 19:00 appears in the public repository and `planReconciliation`
+returns `reschedule`; cancelling → `remove (cancelled)`; hiding → `remove (deleted)`.
+Publishing news makes it public, unpublishing (`status = draft`, `published_at = null`)
+removes it; scheduled news stays hidden until `published_at`. A session image overrides the
+activity cover; without either the app draws its placeholder.
+
+### Audit log
+
+`admin_audit_log` is written only by triggers (sessions, news, coaches, activities,
+stations) and RPCs (duplicate, coach activities, invitation cancel) — never by the browser —
+with actor, role, action, entity and a short label (changed field names for updates). No
+secrets: station triggers never copy `token_hash`; tests assert that no token, hash or
+payload appears in any entry.
+
+### Station QR from the dashboard
+
+Create / rotate return the payload **once**; the dashboard renders the A5 poster and A6
+counter card in the browser from `@arenafit/reception-print` (same layout as the CLI, real
+logo, the token only inside the QR), offers print / download, warns before closing
+unprinted, and holds the payload in memory only while the print window is open (mutation
+`gcTime: 0`, reset on close; never in the query cache, storage or logs). Rotation asks for confirmation: « L’ancien QR cessera immédiatement de fonctionner. »
+
+### Notifications
+
+Drafts only (`status = 'draft'` enforced by policy and column grants; titles ≤ 80, bodies
+≤ 300, deep links `arenafit://…` only). Sending is visibly « pas encore actif » — it needs
+device registration, final member login and push credentials.
+
+### Storage
+
+Local stack runs Supabase Storage. Uploads: JPEG / PNG / WebP ≤ 5 MB, checked from magic
+bytes in the dashboard and again by bucket `allowed_mime_types` / `file_size_limit`; keys
+are random (`folder/uuid.ext`), never the uploaded file name.
+
+### Tests
+
+* `supabase/tests/admin_roles.test.sql` — role matrix, self-promotion, RPC refusals, audit
+  entries and their contents.
+* `apps/admin/tests/unit.test.mts` — roles, validation (times, links, slugs), images, dates,
+  clock parity, planning rules, error mapping, print SVG contains no token text.
+* `apps/admin/tests/admin.integration.test.mts` — every role through the real repositories
+  against Auth + PostgREST + Storage (reserved test year 2031).
+* `apps/mobile/tests/admin-effects.integration.test.mts` — dashboard changes seen by the app
+  (reserved test year 2032).

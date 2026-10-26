@@ -310,18 +310,21 @@ returns jsonb language plpgsql stable security definer set search_path = '' as $
 declare
   today date := public.club_local_timestamp(now())::date;
   monday date := today - (extract(isodow from today)::int - 1);
+  content boolean := public.can_manage_content();
+  passes boolean := public.can_view_guest_passes();
 begin
   perform private.require(public.is_staff());
+  -- Each figure only for roles that may see that section (null otherwise).
   return jsonb_build_object(
     'club_today', today,
     'sessions_today', (select count(*) from public.class_sessions where session_date = today and not is_cancelled),
     'sessions_week', (select count(*) from public.class_sessions where session_date between monday and monday + 6 and not is_cancelled),
     'cancelled_week', (select count(*) from public.class_sessions where session_date between monday and monday + 6 and is_cancelled),
-    'news_published', (select count(*) from public.news where status = 'published' and published_at <= now()),
-    'news_drafts', (select count(*) from public.news where status = 'draft'),
-    'passes_active', (select count(*) from public.guest_invitations where status = 'activated' and expires_at > now()),
-    'passes_used_today', (select count(*) from public.guest_redemptions where public.club_local_timestamp(redeemed_at)::date = today),
-    'invitations_pending', (select count(*) from public.guest_invitations where status = 'sent' and expires_at > now())
+    'news_published', case when content then (select count(*) from public.news where status = 'published' and published_at <= now()) end,
+    'news_drafts', case when content then (select count(*) from public.news where status = 'draft') end,
+    'passes_active', case when passes then (select count(*) from public.guest_invitations where status = 'activated' and expires_at > now()) end,
+    'passes_used_today', case when passes then (select count(*) from public.guest_redemptions where public.club_local_timestamp(redeemed_at)::date = today) end,
+    'invitations_pending', case when passes then (select count(*) from public.guest_invitations where status = 'sent' and expires_at > now()) end
   );
 end;
 $$;
@@ -359,7 +362,9 @@ begin
     created := created || new_id;
   end loop;
   perform private.audit('session.duplicated', 'class_session', src.id,
-    jsonb_build_object('created', cardinality(created), 'skipped', to_jsonb(skipped)));
+    jsonb_build_object('activity', (select name from public.activities where id = src.activity_id),
+      'date', src.session_date, 'start', to_char(src.start_time, 'HH24:MI'),
+      'created', cardinality(created), 'skipped', to_jsonb(skipped)));
   return jsonb_build_object('created', to_jsonb(created), 'skipped', to_jsonb(skipped));
 end;
 $$;
@@ -377,7 +382,8 @@ begin
   select p_coach_id, a from unnest(coalesce(p_activity_ids, '{}')) a
   on conflict do nothing;
   perform private.audit('coach.activities_updated', 'coach', p_coach_id,
-    jsonb_build_object('count', cardinality(coalesce(p_activity_ids, '{}'))));
+    jsonb_build_object('name', (select display_name from public.coaches where id = p_coach_id),
+      'count', cardinality(coalesce(p_activity_ids, '{}'))));
 end;
 $$;
 

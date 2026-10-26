@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # LOCAL TESTING ONLY — a Supabase-like API on http://localhost:54321 without
 # the Supabase CLI: PostgreSQL (database arenafit_dev) + GoTrue (real Auth,
-# anonymous sign-in enabled) + PostgREST + a small gateway. Rebuilds the
+# anonymous sign-in enabled) + PostgREST + Storage API (file backend) + a small
+# gateway. Rebuilds the
 # database from supabase/migrations + seed + dev fixtures and creates two test
 # members and two reception stations (one deactivated). Secrets are generated
 # into .local-stack/ (git-ignored).
@@ -22,7 +23,7 @@ mkdir -p "$STATE"
 SECRET="$(cat "$STATE/jwt-secret")"
 P=(sudo -u postgres psql -X -q -v ON_ERROR_STOP=1)
 
-docker rm -f arenafit-postgrest arenafit-gotrue >/dev/null 2>&1 || true
+docker rm -f arenafit-postgrest arenafit-gotrue arenafit-storage >/dev/null 2>&1 || true
 fuser -k 54321/tcp >/dev/null 2>&1 || true
 
 "${P[@]}" <<'SQL'
@@ -30,11 +31,28 @@ do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then
     create role supabase_auth_admin login superuser password 'auth';
   end if;
+  if not exists (select 1 from pg_roles where rolname = 'supabase_storage_admin') then
+    create role supabase_storage_admin login superuser password 'storage';
+  end if;
 end $$;
 drop database if exists arenafit_dev;
 create database arenafit_dev;
 SQL
 "${P[@]}" -d arenafit_dev -c "create schema auth authorization supabase_auth_admin"
+# API roles first: Storage's own migrations grant to them.
+"${P[@]}" -d arenafit_dev <<'SQL'
+do $$
+declare r record;
+begin
+  for r in select * from (values ('anon', 'nologin noinherit'), ('authenticated', 'nologin noinherit'),
+      ('service_role', 'nologin noinherit bypassrls'), ('authenticator', 'login noinherit password ''authenticator''')) t(name, opts)
+  loop
+    if not exists (select 1 from pg_roles where rolname = r.name) then execute format('create role %I %s', r.name, r.opts); end if;
+  end loop;
+end $$;
+grant anon, authenticated, service_role to authenticator;
+create schema storage authorization supabase_storage_admin;
+SQL
 
 echo "▸ GoTrue (Auth)"
 docker run -d --name arenafit-gotrue --network host \
@@ -50,6 +68,28 @@ docker run -d --name arenafit-gotrue --network host \
   supabase/gotrue:v2.177.0 >/dev/null
 for _ in $(seq 1 60); do curl -sf --noproxy '*' http://127.0.0.1:9999/health >/dev/null && break; sleep 1; done
 curl -sf --noproxy '*' http://127.0.0.1:9999/health >/dev/null || { docker logs arenafit-gotrue | tail -20; exit 1; }
+
+echo "▸ Storage API"
+mkdir -p "$STATE/storage"
+docker run -d --name arenafit-storage --network host \
+  -v "$STATE/storage:/var/lib/storage" \
+  -e ANON_KEY="$(cat "$STATE/anon-key")" -e SERVICE_KEY="$(cat "$STATE/service-key")" \
+  -e AUTH_JWT_SECRET="$SECRET" -e PGRST_JWT_SECRET="$SECRET" \
+  -e DATABASE_URL="postgres://supabase_storage_admin:storage@127.0.0.1:5432/arenafit_dev" \
+  -e DB_INSTALL_ROLES=false -e SERVER_PORT=5000 -e PORT=5000 \
+  -e STORAGE_BACKEND=file -e FILE_STORAGE_BACKEND_PATH=/var/lib/storage \
+  -e TENANT_ID=stub -e REGION=local -e GLOBAL_S3_BUCKET=stub -e FILE_SIZE_LIMIT=52428800 \
+  -e ENABLE_IMAGE_TRANSFORMATION=false \
+  supabase/storage-api:v1.25.7 >/dev/null
+for _ in $(seq 1 90); do curl -sf --noproxy '*' http://127.0.0.1:5000/status >/dev/null && break; sleep 1; done
+curl -sf --noproxy '*' http://127.0.0.1:5000/status >/dev/null || { docker logs arenafit-storage | tail -30; exit 1; }
+# Grants Supabase's image sets up for the storage schema.
+"${P[@]}" -d arenafit_dev <<'SQL'
+grant usage on schema storage to anon, authenticated, service_role;
+grant all on all tables in schema storage to anon, authenticated, service_role;
+grant all on all sequences in schema storage to anon, authenticated, service_role;
+grant all on all functions in schema storage to anon, authenticated, service_role;
+SQL
 
 echo "▸ schema, seed, dev fixtures"
 for f in "$ROOT/scripts/db/supabase-stubs.sql" "$ROOT"/supabase/migrations/*.sql "$ROOT/supabase/seed.sql" "$ROOT/supabase/fixtures/dev.sql"; do
@@ -76,6 +116,18 @@ for m in "dev.member@arenafit.local:Ayoub" "test.member2@arenafit.local:Karim"; 
       select id, 'Membre test', 'test', current_date - 30 from auth.users where email = '$email';"
 done
 
+echo "▸ staff accounts (dashboard)"
+[[ -f "$STATE/staff-password" ]] || openssl rand -hex 12 > "$STATE/staff-password"
+SPW="$(cat "$STATE/staff-password")"
+for m in "admin@arenafit.local:admin:Admin test" "contenu@arenafit.local:content_manager:Contenu test" "accueil@arenafit.local:reception:Accueil test"; do
+  IFS=: read -r email role label <<<"$m"
+  curl -s --noproxy '*' -X POST http://localhost:54321/auth/v1/admin/users -H "apikey: $SVC" -H "Authorization: Bearer $SVC" \
+    -H 'content-type: application/json' -d "{\"email\":\"$email\",\"password\":\"$SPW\",\"email_confirm\":true}" >/dev/null
+  "${P[@]}" -d arenafit_dev -c "insert into public.admin_users (user_id, role, display_name)
+      select id, '$role', '$label' from auth.users where email = '$email'
+      on conflict (user_id) do update set role = excluded.role, display_name = excluded.display_name;"
+done
+
 echo "▸ reception stations"
 station() { # name → qr payload
   curl -s --noproxy '*' -X POST http://localhost:54321/rest/v1/rpc/create_reception_station -H "apikey: $SVC" \
@@ -99,6 +151,9 @@ cat <<INFO
     EXPO_PUBLIC_DEV_RECEPTION_QR=$MAIN_QR
     EXPO_PUBLIC_DEV_RECEPTION_QR_INACTIVE=$OFF_QR
   printable reception QR (local): .local-stack/print/reception-principale-a5.svg / -a6.svg
+  dashboard (apps/admin/.env.local): NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY as above
+    staff logins: admin@arenafit.local · contenu@arenafit.local · accueil@arenafit.local
+    password: .local-stack/staff-password
   integration tests (apps/mobile):
     SUPABASE_TEST_URL=http://localhost:54321 SUPABASE_TEST_ANON_KEY=\$(cat .local-stack/anon-key) \\
     SUPABASE_TEST_SERVICE_KEY=\$(cat .local-stack/service-key) npm test

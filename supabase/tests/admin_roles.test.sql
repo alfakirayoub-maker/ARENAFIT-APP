@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(74);
+select plan(76);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a1', 'admin@test'),
@@ -130,6 +130,8 @@ select throws_ok($$ insert into notifications (category, title, body, deep_link)
 select throws_ok($$ select admin_create_reception_station('X') $$, '42501', 'forbidden', 'content manager cannot create stations');
 select throws_ok($$ select admin_list_guest_invitations() $$, '42501', 'forbidden', 'content manager cannot see guest passes');
 select is((select count(*) from admin_audit_log)::int, 0, 'content manager cannot read the audit log');
+select ok(admin_dashboard_stats() -> 'passes_active' = 'null'::jsonb and admin_dashboard_stats() ? 'news_published'
+  and admin_dashboard_stats() -> 'news_published' <> 'null'::jsonb, 'content manager overview: content figures, no guest pass figures');
 
 -- ---------------------------------------------------------------------------
 -- Reception: guest pass view + station list only
@@ -138,6 +140,8 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000000000a3');
 select lives_ok($$ select admin_list_guest_invitations() $$, 'reception lists guest passes');
 select lives_ok($$ select admin_list_reception_stations() $$, 'reception lists stations');
 select lives_ok($$ select admin_dashboard_stats() $$, 'reception sees the overview');
+select ok(admin_dashboard_stats() -> 'news_drafts' = 'null'::jsonb and admin_dashboard_stats() -> 'passes_active' <> 'null'::jsonb,
+  'reception overview: guest pass figures, no news figures');
 select throws_ok(format('insert into class_sessions (activity_id, session_date, start_time, end_time) values (%L, current_date, %L, %L)',
   pg_temp.rpm(), '18:00', '19:00'), '42501', null, 'reception cannot create sessions');
 update news set title = 'HACK' where slug = 'test-admin';

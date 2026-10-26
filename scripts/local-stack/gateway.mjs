@@ -1,5 +1,5 @@
 // LOCAL TESTING ONLY — stand-in for the Supabase API gateway:
-//   /rest/v1/* → PostgREST (:3000)   /auth/v1/* → GoTrue (:9999)
+//   /rest/v1/* → PostgREST (:3000)   /auth/v1/* → GoTrue (:9999)   /storage/v1/* → Storage (:5000)
 // Requires an apikey (anon or service) like Supabase does, and forwards the
 // client address as x-forwarded-for (used by short-code rate limiting).
 // Usage: node gateway.mjs <state-dir>      (kill -USR2 <pid> toggles 503 failure mode)
@@ -34,13 +34,17 @@ http
       ? { port: 3000, prefix: '/rest/v1' }
       : url.pathname.startsWith('/auth/v1/')
         ? { port: 9999, prefix: '/auth/v1' }
-        : null;
+        : url.pathname.startsWith('/storage/v1/')
+          ? { port: 5000, prefix: '/storage/v1' }
+          : null;
     if (!target) {
       res.writeHead(404, cors);
       return res.end();
     }
     const key = req.headers.apikey ?? url.searchParams.get('apikey');
-    if (key !== ANON && key !== SERVICE) {
+    // Public bucket objects are readable without a key, as on Supabase.
+    const publicObject = target.port === 5000 && url.pathname.startsWith('/storage/v1/object/public/') && req.method === 'GET';
+    if (!publicObject && key !== ANON && key !== SERVICE) {
       res.writeHead(401, { ...cors, 'content-type': 'application/json' });
       return res.end('{"message":"Invalid API key"}');
     }

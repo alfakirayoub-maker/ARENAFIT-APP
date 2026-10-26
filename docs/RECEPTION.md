@@ -4,8 +4,24 @@ Guests check in by scanning, **with their own phone**, a QR printed at the
 reception. The reception needs no device. Each printed QR identifies a
 **reception station**; the server redeems the scanning guest's own pass.
 
-All operations below run with the **service role** — in the Supabase SQL editor
-(or a future admin backend). Never from the apps, never with the anon key.
+## From the admin dashboard (recommended)
+
+**Stations réception** (administrators only; reception staff can view the list):
+
+1. **Créer la station** → the print window opens immediately with the A5 poster and the A6
+   counter card. Print or download them now: the QR is shown **only once**. Closing
+   without printing asks for confirmation.
+2. Open a station to see its creation date, last rotation, validated passes and history.
+3. **Renouveler et imprimer le QR** → confirm (« L’ancien QR cessera immédiatement de
+   fonctionner. ») → print the new QR, destroy the old prints.
+4. **Désactiver / Réactiver la station** (deactivation asks for confirmation).
+
+Every action is recorded in **Journal** — without the QR or any secret.
+
+## With SQL (fallback)
+
+The operations below run with the **service role** in the Supabase SQL editor. Never
+from the apps, never with the anon key.
 
 ## 1. Create a station (once per reception desk)
 

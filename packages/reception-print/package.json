@@ -1,0 +1,17 @@
+{
+  "name": "@arenafit/reception-print",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.mjs"
+    }
+  },
+  "dependencies": {
+    "qrcode": "1.5.4"
+  }
+}
