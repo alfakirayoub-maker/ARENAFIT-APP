@@ -6,6 +6,7 @@ an internal admin dashboard for the club team.
 ```
 apps/mobile     Expo (React Native) app — iOS / Android
 apps/admin      Admin dashboard — Next.js (internal, desktop-first)
+apps/storybook  Hikaya — personalised educational storybooks, Next.js (see apps/storybook/README.md)
 packages/       shared code: reception-print (station QR print layout, used by the dashboard and the CLI)
 supabase/       database migrations, RLS policies, seed data
 docs/           architecture & plan (docs/ARCHITECTURE.md), dev builds & notifications (docs/DEV_BUILD.md),
@@ -21,6 +22,7 @@ scripts/        DB tests (scripts/db), local Supabase-like API (scripts/local-st
 npm install                 # installs all workspaces
 npm run mobile              # expo start (scan with a dev build / Expo Go)
 npm run admin               # dashboard on http://localhost:3100 (needs apps/admin/.env.local)
+npm run hikaya              # storybook web app on http://localhost:3200 (demo mode, no env needed)
 npm run typecheck
 npm test                    # unit tests (+ Supabase integration when SUPABASE_TEST_* is set)
 npm run db:test             # clean DB: migrations, seed, pgTAP RLS/clock/seed tests

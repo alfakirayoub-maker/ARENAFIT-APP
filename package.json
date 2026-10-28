@@ -8,6 +8,7 @@
   "scripts": {
     "mobile": "npm run start -w apps/mobile",
     "admin": "npm run dev -w apps/admin",
+    "hikaya": "npm run dev -w apps/storybook",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
